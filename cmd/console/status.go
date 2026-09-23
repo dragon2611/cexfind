@@ -55,6 +55,10 @@ func (s status) setPostcodingInvalid() status {
 	return status("sorry -- searching by postcode is currently unavailable")
 }
 
+func (s status) setPriceRange() status {
+	return status("optionally enter minimum and maximum selling prices in pounds")
+}
+
 // status formatting when searching
 func (s status) setSearching(t string) status {
 	var searchPrefixTpl = "searching for \"%s\"..."

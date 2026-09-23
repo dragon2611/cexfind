@@ -32,7 +32,7 @@ var (
 			BorderForeground(lipgloss.Color("#ff982e")).
 			Border(lipgloss.NormalBorder(), false, false, true, false).
 			BorderBottom(true).
-			Height(5).
+			Height(6).
 			Margin(1, 2, 0, 3).
 			Width(100).
 			UnsetBold()
@@ -60,12 +60,14 @@ const (
 	listState state = iota // default
 	inputState
 	postcodeState
+	minPriceState
+	maxPriceState
 	checkboxState
 	sortState
 )
 
 func (s state) String() string {
-	return []string{"list", "input", "postcode", "checkbox", "sort"}[s]
+	return []string{"list", "input", "postcode", "min price", "max price", "checkbox", "sort"}[s]
 }
 
 // model contains a model for the textinput model and list model,
@@ -92,6 +94,7 @@ type model struct {
 	query    string
 	strict   bool
 	postcode string
+	price    cexfind.PriceRange
 
 	// keys are the current key set based on the focus state, switched
 	// through getKeyMap in keymap.go
@@ -168,6 +171,10 @@ func (m model) Init() tea.Cmd {
 // The relevant key.KeyMap is selected based on the current focus area
 func (m *model) stateSwitch(targetState state, withStatus bool) tea.Cmd {
 	defer log.Printf("state %s input.cursor %d input.focus %v", m.state, m.input.cursor, m.input.input.Focused())
+	m.input.input.Blur()
+	m.input.postcode.Blur()
+	m.input.minPrice.Blur()
+	m.input.maxPrice.Blur()
 	m.state = targetState
 	switch targetState {
 	case inputState:
@@ -188,6 +195,20 @@ func (m *model) stateSwitch(targetState state, withStatus bool) tea.Cmd {
 			m.status = m.status.setPostcoding()
 		}
 		m.keys = getKeyMap(inputKeysState)
+	case minPriceState:
+		m.input.cursor = cursorMinPrice
+		m.input.minPrice.Focus()
+		m.keys = getKeyMap(inputKeysState)
+		if withStatus {
+			m.status = m.status.setPriceRange()
+		}
+	case maxPriceState:
+		m.input.cursor = cursorMaxPrice
+		m.input.maxPrice.Focus()
+		m.keys = getKeyMap(inputKeysState)
+		if withStatus {
+			m.status = m.status.setPriceRange()
+		}
 	case checkboxState:
 		m.input.cursor = cursorBox
 		m.input.input.Blur()
@@ -248,6 +269,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// search data was entered into input and needs to be percolated to status
 	case inputEnterMsg:
 		log.Printf("inputEnterMsg received %v", msg)
+		price, err := cexfind.ParsePriceRange(m.input.minPrice.Value(), m.input.maxPrice.Value())
+		if err != nil {
+			m.status = status("Error: " + err.Error())
+			return m, nil
+		}
+		m.price = price
 		m.status = m.status.setSearching(string(msg))
 		m.query, m.strict, m.postcode = string(msg), m.input.checkbox, m.input.postcode.Value()
 		return m, findPerform(m.query, m.strict, m.postcode, 0)
@@ -348,6 +375,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case inputState:
 				s = postcodeState
 			case postcodeState:
+				s = minPriceState
+			case minPriceState:
+				s = maxPriceState
+			case maxPriceState:
 				s = checkboxState
 			case checkboxState:
 				s = sortState
@@ -367,7 +398,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// defer to input or list models depending on state
 	switch m.state {
-	case inputState, postcodeState, checkboxState, sortState:
+	case inputState, postcodeState, minPriceState, maxPriceState, checkboxState, sortState:
 		var t tea.Model
 		t, cmd = m.input.Update(msg)
 		m.input = t.(inModel)

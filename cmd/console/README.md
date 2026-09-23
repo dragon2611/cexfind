@@ -22,6 +22,8 @@ Press Tab to reach the sort field, then Space or `x` to cycle through
 model, price low to high, price high to low, and nearest store. Enter a
 postcode to make nearest store available. Press Enter to search.
 Sorting applies to the current search result page.
+Tab through the minimum and maximum price fields to set an inclusive
+selling price range in pounds. Leave either field blank for no bound.
 
 ![](console.gif)
 

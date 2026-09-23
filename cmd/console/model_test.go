@@ -2,11 +2,36 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestPriceInputs(t *testing.T) {
+	m := model{input: newInModel(), state: inputState, keys: getKeyMap(inputKeysState)}
+	for _, want := range []state{postcodeState, minPriceState, maxPriceState, checkboxState} {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = updated.(model)
+		if m.state != want {
+			t.Fatalf("tab reached %s, want %s", m.state, want)
+		}
+	}
+	m.input.minPrice.SetValue("25.5")
+	m.input.maxPrice.SetValue("100")
+	updated, cmd := m.Update(inputEnterMsg("test item"))
+	m = updated.(model)
+	if cmd == nil || m.price.Min == nil || m.price.Max == nil || m.price.Min.String() != "25.5" || m.price.Max.String() != "100" {
+		t.Errorf("valid price input did not start search: price=%+v cmd=%v", m.price, cmd)
+	}
+	m.input.minPrice.SetValue("101")
+	updated, cmd = m.Update(inputEnterMsg("test item"))
+	m = updated.(model)
+	if cmd != nil || !strings.Contains(string(m.status), "min price must not exceed max price") {
+		t.Errorf("invalid range started search: status=%q cmd=%v", m.status, cmd)
+	}
+}
 
 func TestSearchPageKeys(t *testing.T) {
 	m := model{state: listState, page: 1, hasMore: true, query: "test", strict: true, postcode: "SW1A 0AA"}

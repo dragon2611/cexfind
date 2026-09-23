@@ -55,6 +55,8 @@ type inCursor int
 const (
 	cursorInput inCursor = iota
 	cursorPostcode
+	cursorMinPrice
+	cursorMaxPrice
 	cursorBox
 	cursorSort
 )
@@ -64,6 +66,8 @@ type inModel struct {
 	input    textinput.Model
 	checkbox bool
 	postcode textinput.Model
+	minPrice textinput.Model
+	maxPrice textinput.Model
 	cursor   inCursor
 	sortBy   string
 }
@@ -84,9 +88,23 @@ func newInModel() inModel {
 	p.PromptStyle = postcodeFocusedStyle
 	p.Width = 12
 
+	minPrice := textinput.New()
+	minPrice.Cursor.Style = postcodeNormalStyle
+	minPrice.CharLimit = 12
+	minPrice.Placeholder = "min £"
+	minPrice.Width = 12
+
+	maxPrice := textinput.New()
+	maxPrice.Cursor.Style = postcodeNormalStyle
+	maxPrice.CharLimit = 12
+	maxPrice.Placeholder = "max £"
+	maxPrice.Width = 12
+
 	return inModel{
 		input:    t,
 		postcode: p,
+		minPrice: minPrice,
+		maxPrice: maxPrice,
 		checkbox: false,
 		sortBy:   cexfind.SortModel,
 	}
@@ -159,6 +177,12 @@ func (in inModel) View() string {
 			in.sortAsString(),
 		),
 	)
+	b.WriteRune('\n')
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Left,
+		inNormalStyle.Render("price range  "),
+		in.minPrice.View(),
+		in.maxPrice.View(),
+	))
 	return b.String()
 }
 
@@ -196,6 +220,10 @@ func (in inModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	in.input, cmd = in.input.Update(msg)
 	cmds = append(cmds, cmd)
 	in.postcode, cmd = in.postcode.Update(msg)
+	cmds = append(cmds, cmd)
+	in.minPrice, cmd = in.minPrice.Update(msg)
+	cmds = append(cmds, cmd)
+	in.maxPrice, cmd = in.maxPrice.Update(msg)
 	cmds = append(cmds, cmd)
 	if in.sortBy == cexfind.SortDistance && strings.TrimSpace(in.postcode.Value()) == "" {
 		in.sortBy = cexfind.SortModel

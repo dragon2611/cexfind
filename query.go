@@ -90,7 +90,7 @@ func validQuery(query string) bool {
 
 // makeQueries makes queries concurrently; strict true requires that the
 // return results contain all terms in at least one query
-func makeQueries(ctx context.Context, client *http.Client, queries []string, strict bool, page int) (<-chan boxResults, error) {
+func makeQueries(ctx context.Context, client *http.Client, queries []string, strict bool, page int, price PriceRange) (<-chan boxResults, error) {
 
 	results := make(chan boxResults)
 
@@ -107,6 +107,17 @@ func makeQueries(ctx context.Context, client *http.Client, queries []string, str
 			br := boxResults{query: query}
 			queryBody := strings.ReplaceAll(jsonBody, "PAGE", fmt.Sprint(page))
 			queryBody = strings.ReplaceAll(queryBody, "MODEL", url.QueryEscape(query))
+			var numericFilters []string
+			if price.Min != nil {
+				numericFilters = append(numericFilters, "sellPrice>="+price.Min.String())
+			}
+			if price.Max != nil {
+				numericFilters = append(numericFilters, "sellPrice<="+price.Max.String())
+			}
+			if len(numericFilters) > 0 {
+				filters, _ := json.Marshal(numericFilters)
+				queryBody = strings.Replace(queryBody, "&page=", "&numericFilters="+url.QueryEscape(string(filters))+"&page=", 1)
+			}
 			queryBytes := []byte(queryBody)
 			response, err := postQuery(client, queryBytes)
 			if len(response.Results) > 0 {

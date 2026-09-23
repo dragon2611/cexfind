@@ -32,6 +32,8 @@ func TestMainFlags(t *testing.T) {
 		numQueries  int
 		page        int
 		sortBy      string
+		minPrice    string
+		maxPrice    string
 	}{
 		{
 			args:     []string{"prog"},
@@ -79,6 +81,13 @@ func TestMainFlags(t *testing.T) {
 			page:        1,
 		},
 		{
+			args:       []string{"prog", "-min-price", "25.50", "-max-price", "100", "-query", "query 1"},
+			numQueries: 1,
+			page:       1,
+			minPrice:   "25.50",
+			maxPrice:   "100",
+		},
+		{
 			args:       []string{"prog", "-page", "3", "-query", "query 1"},
 			numQueries: 1,
 			page:       3,
@@ -114,7 +123,7 @@ func TestMainFlags(t *testing.T) {
 
 		os.Args = tt.args
 
-		queries, strict, postCode, proxy, verbose, page, sortBy := flagGet()
+		queries, strict, postCode, proxy, verbose, page, sortBy, minPrice, maxPrice := flagGet()
 		t.Logf("subtest %d, args %v", i, tt.args)
 		t.Logf("subtest %d, strict %v postcode %v verbose %v queries %v", i, strict, postCode, verbose, queries)
 		if got, want := exit, tt.exitCode; got != want {
@@ -148,6 +157,9 @@ func TestMainFlags(t *testing.T) {
 		if sortBy != wantSort {
 			t.Errorf("sort got %q expected %q", sortBy, wantSort)
 		}
+		if minPrice != tt.minPrice || maxPrice != tt.maxPrice {
+			t.Errorf("price flags got %q..%q, want %q..%q", minPrice, maxPrice, tt.minPrice, tt.maxPrice)
+		}
 	}
 }
 
@@ -155,7 +167,7 @@ func TestMainMain(t *testing.T) {
 
 	tests := []struct {
 		output     string
-		flagGetter func() (queriesType, bool, string, string, bool, int, string)
+		flagGetter func() (queriesType, bool, string, string, bool, int, string, string, string)
 	}{
 		{
 			output: `
@@ -173,8 +185,8 @@ Lenovo X390
 ✱ 360 Lenovo X390/i7-8665U/16GB Ram/512GB SSD/13"/W11/B [Laptops - Windows]
       https://uk.webuy.com/product-detail?id=PALSLENX39097B
 `,
-			flagGetter: func() (queriesType, bool, string, string, bool, int, string) {
-				return queriesType{"nonstrict", "nonverbose"}, false, "", "", false, 1, cex.SortModel
+			flagGetter: func() (queriesType, bool, string, string, bool, int, string, string, string) {
+				return queriesType{"nonstrict", "nonverbose"}, false, "", "", false, 1, cex.SortModel, "", ""
 			},
 		},
 		{
@@ -200,8 +212,8 @@ Lenovo X390
       https://uk.webuy.com/product-detail?id=PALSLENX39097B
       (169/240) store 1, store 2
 `,
-			flagGetter: func() (queriesType, bool, string, string, bool, int, string) {
-				return queriesType{"nonstrict", "verbose"}, false, "", "", true, 1, cex.SortModel
+			flagGetter: func() (queriesType, bool, string, string, bool, int, string, string, string) {
+				return queriesType{"nonstrict", "verbose"}, false, "", "", true, 1, cex.SortModel, "", ""
 			},
 		},
 	}
@@ -263,8 +275,8 @@ func TestMainPriceSort(t *testing.T) {
 	cex.URL = ts.URL
 	defer func() { cex.URL = oldURL }()
 	oldFlagGetter := flagGetter
-	flagGetter = func() (queriesType, bool, string, string, bool, int, string) {
-		return queriesType{"lenovo x390"}, false, "", "", false, 1, cex.SortPriceDesc
+	flagGetter = func() (queriesType, bool, string, string, bool, int, string, string, string) {
+		return queriesType{"lenovo x390"}, false, "", "", false, 1, cex.SortPriceDesc, "", ""
 	}
 	defer func() { flagGetter = oldFlagGetter }()
 

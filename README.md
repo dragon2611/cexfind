@@ -28,6 +28,7 @@ is not intended for commercial use.
 - Sort the results on the selected page by model (the default), price from
   low to high, price from high to low, or distance to the nearest store.
   Distance sorting requires a postcode and available store location data.
+- Limit results to an inclusive minimum and/or maximum selling price in pounds.
 
 ## Usage
 
@@ -134,7 +135,8 @@ The sort constants are `SortModel`, `SortPrice`, `SortPriceDesc`, and
 
 ## AI assistance
 
-AI tools were used to add features to this project, such as pagination and sorting.
+AI tools were used to add pagination, sorting, and minimum/maximum price
+filtering across the web, console, and CLI clients.
 
 ## Licence
 

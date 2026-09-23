@@ -8,6 +8,7 @@ Results can be sorted by model, price in either direction, or nearest store
 when a postcode is entered and store distances are available.
 Previous and Next fetch one page at a time, with up to 50 hits per query.
 Sorting applies to the current page.
+Enter a minimum and/or maximum price to filter results before pagination.
 
 ## Usage
 

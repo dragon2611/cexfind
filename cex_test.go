@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -62,6 +63,58 @@ func TestSearchPageRequestsOneUpstreamPage(t *testing.T) {
 	}
 	if requests != 1 || len(boxes) != 1 || boxes[0].ID != "item-2" || !hasMore {
 		t.Errorf("requests=%d boxes=%v hasMore=%t", requests, boxes, hasMore)
+	}
+}
+
+func TestSearchPagePriceRangeIsSentUpstream(t *testing.T) {
+	oldURL := URL
+	defer func() { URL = oldURL }()
+
+	price, err := ParsePriceRange("25.50", "100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Requests []struct {
+				Params string `json:"params"`
+			} `json:"requests"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		if len(body.Requests) != 1 {
+			t.Errorf("got %d requests", len(body.Requests))
+			return
+		}
+		params, err := url.ParseQuery(body.Requests[0].Params)
+		if err != nil {
+			t.Errorf("parse params: %v", err)
+			return
+		}
+		var filters []string
+		if err := json.Unmarshal([]byte(params.Get("numericFilters")), &filters); err != nil {
+			t.Errorf("parse numericFilters: %v", err)
+		}
+		if want := []string{"sellPrice>=25.5", "sellPrice<=100"}; !slices.Equal(filters, want) {
+			t.Errorf("filters = %v, want %v", filters, want)
+		}
+		if got := params.Get("page"); got != "1" {
+			t.Errorf("page = %q, want 1", got)
+		}
+		fmt.Fprint(w, `{"results":[{"hits":[{"boxName":"Test item","boxId":"item-2","sellPrice":50}],"nbPages":3}]}`)
+	}))
+	defer ts.Close()
+	URL = ts.URL
+
+	cex, err := NewCexFind()
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes, hasMore, err := cex.SearchPage([]string{"test item"}, false, "", 1, price)
+	if err != nil || len(boxes) != 1 || !hasMore {
+		t.Errorf("boxes=%v hasMore=%t err=%v", boxes, hasMore, err)
 	}
 }
 

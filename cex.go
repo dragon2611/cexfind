@@ -321,9 +321,20 @@ func (cex *CexFind) Search(queries []string, strict bool, postcode string) ([]Bo
 // SearchPage returns one zero-based page of results and whether a later page
 // is available from any of the upstream queries. Each query supplies at most
 // 50 hits on a page; strict filtering and duplicate removal may reduce that.
-func (cex *CexFind) SearchPage(queries []string, strict bool, postcode string, page int) ([]Box, bool, error) {
+// An optional PriceRange filters selling prices before upstream pagination.
+func (cex *CexFind) SearchPage(queries []string, strict bool, postcode string, page int, prices ...PriceRange) ([]Box, bool, error) {
 	if page < 0 || page > 999 {
 		return nil, false, fmt.Errorf("page must be between 0 and 999")
+	}
+	price := PriceRange{}
+	if len(prices) > 1 {
+		return nil, false, fmt.Errorf("only one price range may be supplied")
+	}
+	if len(prices) == 1 {
+		price = prices[0]
+	}
+	if err := price.validate(); err != nil {
+		return nil, false, err
 	}
 	var allBoxes boxes
 	var idMap = make(map[string]struct{})
@@ -334,7 +345,7 @@ func (cex *CexFind) SearchPage(queries []string, strict bool, postcode string, p
 
 	var err error
 
-	results, err := makeQueries(ctx, cex.client, queries, strict, page)
+	results, err := makeQueries(ctx, cex.client, queries, strict, page, price)
 	if err != nil {
 		return nil, false, err
 	}

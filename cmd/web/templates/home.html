@@ -15,6 +15,8 @@
     label { display: inline-block; width: 50px }
     input#queries { width: 540px; margin-right: 20px; font-size: 12pt; background-color: #99999929; }
     input#postcode { width: 80px; margin-right: 20px; font-size: 12pt; background-color: #99999929; }
+    input.price-bound { width: 90px; margin-right: 12px; font-size: 12pt; background-color: #99999929; }
+    label.price-label { width: auto; margin-right: 5px; }
     input#strict { width: 17px; height: 17px; margin-right: 10px; font-size: 11pt; }
     select#sort { margin-right: 12px; font-size: 11pt; }
     input.label { width: 30px; margin-right: 10px; font-size: 11pt; }
@@ -64,6 +66,12 @@ fork or comment on <a href="https://github.com/rorycl/cexfind">Github</a>
 <input type="text" {{ if eq .LocationDistancesOK false }}disabled="disabled" {{ end }}id="postcode" name="postcode" minlength="5" maxlength="8" size="8" placeholder={{ if .LocationDistancesOK }}"postcode"{{ else }}"disabled"{{ end }} value="{{ .Search.Postcode }}" />
 <input type="checkbox" id="strict" name="strict" {{ if .Search.Strict }}checked{{ end }} />
 <label for="strict">strict</label>
+</section>
+<section class="sort-controls">
+<label class="price-label" for="min_price">Min price £</label>
+<input class="price-bound" type="number" id="min_price" name="min_price" min="0" step="0.01" value="{{ .Search.MinPrice }}" />
+<label class="price-label" for="max_price">Max price £</label>
+<input class="price-bound" type="number" id="max_price" name="max_price" min="0" step="0.01" value="{{ .Search.MaxPrice }}" />
 </section>
 <section class="sort-controls">
 <label for="sort">sort</label>

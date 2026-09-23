@@ -13,6 +13,10 @@ The animated gif was made with Charm's
 Usage of ./cli:
   -page int
       result page to fetch (1-1000; 50 hits per query per page) (default 1)
+  -min-price string
+      minimum selling price in pounds (inclusive)
+  -max-price string
+      maximum selling price in pounds (inclusive)
   -postcode string
     	specify postcode
   -proxy string
@@ -34,6 +38,7 @@ eg <programme> [-strict] [-page 2] -query "query 1" [-query "query 2"...]
 
 Add `-sort price` for cheapest first, `-sort price-desc` for most expensive
 first, or `-postcode "SW1A 0AA" -sort distance` for nearest store first.
+Add `-min-price 25 -max-price 100` to limit the selling price.
 
 Use `-page 2` to fetch the next page. Each run fetches only the selected
 page, with up to 50 hits per query. Sorting applies to that page's results.

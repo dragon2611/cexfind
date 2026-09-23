@@ -49,7 +49,7 @@ func find(m *model, query string, strict bool, postcode string, page int) (items
 	log.Printf("  making search for %v, strict %t", queries, strict)
 
 	// note that err does not cause a failure
-	results, hasMore, err = m.cex.SearchPage(queries, strict, postcode, page)
+	results, hasMore, err = m.cex.SearchPage(queries, strict, postcode, page, m.price)
 	order := m.input.sortBy
 	if order == cex.SortDistance && strings.TrimSpace(postcode) == "" {
 		order = cex.SortModel

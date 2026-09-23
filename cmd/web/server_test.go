@@ -18,9 +18,10 @@ import (
 )
 
 type srch struct {
-	f        func() ([]cexfind.Box, error)
-	pageFunc func(int) ([]cexfind.Box, bool, error)
-	locDist  bool
+	f         func() ([]cexfind.Box, error)
+	pageFunc  func(int) ([]cexfind.Box, bool, error)
+	priceFunc func(cexfind.PriceRange)
+	locDist   bool
 }
 
 func (s *srch) Search(queries []string, strict bool, postcode string) ([]cexfind.Box, error) {
@@ -30,12 +31,55 @@ func (s *srch) Search(queries []string, strict bool, postcode string) ([]cexfind
 		return s.f()
 	}
 }
-func (s *srch) SearchPage(queries []string, strict bool, postcode string, page int) ([]cexfind.Box, bool, error) {
+func (s *srch) SearchPage(queries []string, strict bool, postcode string, page int, prices ...cexfind.PriceRange) ([]cexfind.Box, bool, error) {
+	if s.priceFunc != nil && len(prices) == 1 {
+		s.priceFunc(prices[0])
+	}
 	if s.pageFunc != nil {
 		return s.pageFunc(page)
 	}
 	results, err := s.Search(queries, strict, postcode)
 	return results, false, err
+}
+
+func TestResultsPriceRange(t *testing.T) {
+	var got cexfind.PriceRange
+	s, err := newServer("", "", "", &srch{
+		priceFunc: func(price cexfind.PriceRange) { got = price },
+		pageFunc: func(page int) ([]cexfind.Box, bool, error) {
+			return []cexfind.Box{{ID: "item", Model: "Test", Price: decimal.NewFromInt(50)}}, true, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.DirFS = &fileSystem{TplFS: os.DirFS("templates")}
+	w := httptest.NewRecorder()
+	s.Results(w, httptest.NewRequest(http.MethodPost, "/results", strings.NewReader("query=test&min_price=25.50&max_price=100&page=1")))
+	if w.Code != http.StatusOK || got.Min == nil || got.Max == nil || got.Min.String() != "25.5" || got.Max.String() != "100" {
+		t.Errorf("status=%d, price=%+v, body=%s", w.Code, got, w.Body.String())
+	}
+	for _, want := range []string{"min_price=25.5", "max_price=100", "page=1"} {
+		if !strings.Contains(w.Header().Get("HX-Push-Url"), want) {
+			t.Errorf("push URL %q missing %q", w.Header().Get("HX-Push-Url"), want)
+		}
+	}
+
+	w = httptest.NewRecorder()
+	s.Home(w, httptest.NewRequest(http.MethodGet, "/?query=test&min_price=25.5&max_price=100", nil))
+	for _, want := range []string{`name="min_price" min="0" step="0.01" value="25.5"`, `name="max_price" min="0" step="0.01" value="100"`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("home missing %q", want)
+		}
+	}
+
+	for _, body := range []string{"query=test&min_price=-1", "query=test&min_price=abc", "query=test&min_price=101&max_price=100"} {
+		w = httptest.NewRecorder()
+		s.Results(w, httptest.NewRequest(http.MethodPost, "/results", strings.NewReader(body)))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("body %q status %d, want 400", body, w.Code)
+		}
+	}
 }
 
 func TestResultsPagination(t *testing.T) {

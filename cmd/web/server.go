@@ -51,7 +51,7 @@ type server struct {
 
 type Searcher interface {
 	Search(queries []string, strict bool, postcode string) ([]cexfind.Box, error)
-	SearchPage(queries []string, strict bool, postcode string, page int) ([]cexfind.Box, bool, error)
+	SearchPage(queries []string, strict bool, postcode string, page int, prices ...cexfind.PriceRange) ([]cexfind.Box, bool, error)
 	LocationDistancesOK() bool
 }
 
@@ -226,6 +226,11 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "page must be between 0 and 999", http.StatusBadRequest)
 		return
 	}
+	price, err := cexfind.ParsePriceRange(postResults.MinPrice, postResults.MaxPrice)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	base := fmt.Sprintf("strict=%s", func() string {
 		if postResults.Strict {
@@ -235,6 +240,12 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 	}())
 	if postResults.Postcode != "" {
 		base += fmt.Sprintf("&postcode=%s", url.PathEscape(postResults.Postcode))
+	}
+	if price.Min != nil {
+		base += "&min_price=" + url.QueryEscape(price.Min.String())
+	}
+	if price.Max != nil {
+		base += "&max_price=" + url.QueryEscape(price.Max.String())
 	}
 	postResults.Sort = validSort(postResults.Sort, postResults.Postcode, s.searcher.LocationDistancesOK())
 	if postResults.Sort != "model" {
@@ -261,7 +272,7 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 		HasNext      bool
 	}
 	sr := SearchResults{Sort: postResults.Sort, Page: postResults.Page + 1, PreviousPage: postResults.Page - 1, NextPage: postResults.Page + 1, HasPrevious: postResults.Page > 0}
-	sr.Results, sr.HasNext, sr.Err = s.searcher.SearchPage(queries, postResults.Strict, postResults.Postcode, postResults.Page)
+	sr.Results, sr.HasNext, sr.Err = s.searcher.SearchPage(queries, postResults.Strict, postResults.Postcode, postResults.Page, price)
 	cexfind.SortBoxes(sr.Results, sr.Sort)
 
 	t := template.Must(template.ParseFS(s.DirFS.TplFS, "partial-results.html"))
@@ -274,6 +285,8 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 
 type QueriesType struct {
 	Postcode string   `schema:"postcode"`
+	MinPrice string   `schema:"min_price"`
+	MaxPrice string   `schema:"max_price"`
 	Strict   bool     `schema:"strict"`
 	Sort     string   `schema:"sort"`
 	Page     int      `schema:"page"`
@@ -317,6 +330,16 @@ func (s *server) Home(w http.ResponseWriter, r *http.Request) {
 	var search QueriesType
 	var decoder = schema.NewDecoder() // best as package decoder
 	err = decoder.Decode(&search, r.URL.Query())
+	if price, priceErr := cexfind.ParsePriceRange(search.MinPrice, search.MaxPrice); priceErr == nil {
+		if price.Min != nil {
+			search.MinPrice = price.Min.String()
+		}
+		if price.Max != nil {
+			search.MaxPrice = price.Max.String()
+		}
+	} else {
+		search.MinPrice, search.MaxPrice = "", ""
+	}
 	search.Sort = validSort(search.Sort, search.Postcode, s.searcher.LocationDistancesOK())
 
 	if inDevelopment {

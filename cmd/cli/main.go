@@ -15,7 +15,7 @@ import (
 var usage = `
 a cli programme to search Cex/Webuy for second hand equipment
 
-eg <programme> [-strict] [-page 2] -query "query 1" [-query "query 2"...]
+eg <programme> [-strict] [-page 2] [-min-price 25] [-max-price 100] -query "query 1" [-query "query 2"...]
 
 `
 
@@ -44,10 +44,10 @@ func (q *queriesType) String() string {
 var Exit func(code int) = os.Exit
 
 // flagGetter indirects flagGet for testing
-var flagGetter func() (queriesType, bool, string, string, bool, int, string) = flagGet
+var flagGetter func() (queriesType, bool, string, string, bool, int, string, string, string) = flagGet
 
 // flagGet checks the flags
-func flagGet() (queriesType, bool, string, string, bool, int, string) {
+func flagGet() (queriesType, bool, string, string, bool, int, string, string, string) {
 
 	var (
 		strict   bool
@@ -57,6 +57,8 @@ func flagGet() (queriesType, bool, string, string, bool, int, string) {
 		proxy    string
 		page     int
 		sortBy   string
+		minPrice string
+		maxPrice string
 	)
 
 	flag.BoolVar(&strict, "strict", false, "only return items that strictly match the search terms")
@@ -66,6 +68,8 @@ func flagGet() (queriesType, bool, string, string, bool, int, string) {
 	flag.StringVar(&proxy, "proxy", "", "proxy, eg: socks5://127.0.0.1:8080")
 	flag.IntVar(&page, "page", 1, "result page to fetch (1-1000; 50 hits per query per page)")
 	flag.StringVar(&sortBy, "sort", cexfind.SortModel, "sort by model, price, price-desc, or distance (requires postcode)")
+	flag.StringVar(&minPrice, "min-price", "", "minimum selling price in pounds (inclusive)")
+	flag.StringVar(&maxPrice, "max-price", "", "maximum selling price in pounds (inclusive)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
@@ -91,20 +95,26 @@ func flagGet() (queriesType, bool, string, string, bool, int, string) {
 		Exit(1)
 	}
 
-	return queries, strict, postCode, proxy, verbose, page, sortBy
+	return queries, strict, postCode, proxy, verbose, page, sortBy, minPrice, maxPrice
 }
 
 func main() {
 
-	queries, strict, postCode, proxy, verbose, page, sortBy := flagGetter()
+	queries, strict, postCode, proxy, verbose, page, sortBy, minPrice, maxPrice := flagGetter()
 	if page < 1 || page > 1000 {
 		fmt.Println("page must be between 1 and 1000")
 		Exit(1)
 		return
 	}
+	price, err := cexfind.ParsePriceRange(minPrice, maxPrice)
+	if err != nil {
+		fmt.Println(err)
+		Exit(1)
+		return
+	}
 
 	// clean queries
-	queries, err := cmd.QueryInputChecker(queries...)
+	queries, err = cmd.QueryInputChecker(queries...)
 	if err != nil {
 		fmt.Println(err)
 		Exit(1)
@@ -124,7 +134,7 @@ func main() {
 		Exit(1)
 	}
 
-	results, _, err := cex.SearchPage(queries, strict, postCode, page-1)
+	results, _, err := cex.SearchPage(queries, strict, postCode, page-1, price)
 	switch {
 	case err != nil && len(results) > 0:
 		fmt.Println(err)
