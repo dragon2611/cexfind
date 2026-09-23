@@ -50,6 +50,35 @@ func TestSearchPageKeys(t *testing.T) {
 	}
 }
 
+func TestToggleAllStores(t *testing.T) {
+	m := model{state: listState, list: newLiModel()}
+	m.list.list.SetSize(100, 10)
+	m.list.ReplaceList([]list.Item{item{
+		title: "Test item", description: "     (£10/£20) London, Bristol",
+		noStoresDescription: "     (£10/£20)",
+	}})
+	if !strings.Contains(m.list.View(), "London, Bristol") {
+		t.Fatal("store names not shown initially")
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(model)
+	if !m.list.storesCollapsed || strings.Contains(m.list.View(), "London") || !strings.Contains(m.list.View(), "£10/£20") {
+		t.Fatalf("collapsed result did not retain prices: %q", m.list.View())
+	}
+	m.list.ReplaceList([]list.Item{item{
+		title: "Next page item", description: "     (£30/£40) York",
+		noStoresDescription: "     (£30/£40)",
+	}})
+	if strings.Contains(m.list.View(), "York") {
+		t.Fatal("store names reappeared on the next page")
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(model)
+	if m.list.storesCollapsed || !strings.Contains(m.list.View(), "York") {
+		t.Fatalf("store names not restored: %q", m.list.View())
+	}
+}
+
 func TestMain(t *testing.T) {
 
 	// does not add empty items between headings as done by "find" (see

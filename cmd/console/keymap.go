@@ -73,6 +73,7 @@ type KeyMap struct {
 	CursorDown         key.Binding
 	PreviousSearchPage key.Binding
 	NextSearchPage     key.Binding
+	ToggleStores       key.Binding
 	// keybindings such as NexTpage and PrevPage continue to be caught
 	// by the default list keymap
 	/*
@@ -83,7 +84,7 @@ type KeyMap struct {
 
 // ShortHelp
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Enter, k.Tab, k.Exit, k.CursorUp, k.CursorDown, k.PreviousSearchPage, k.NextSearchPage}
+	return []key.Binding{k.Enter, k.Tab, k.Exit, k.CursorUp, k.CursorDown, k.PreviousSearchPage, k.NextSearchPage, k.ToggleStores}
 }
 
 // FullHelp disabled
@@ -116,5 +117,9 @@ var listKeys = KeyMap{
 	NextSearchPage: key.NewBinding(
 		key.WithKeys("]"),
 		key.WithHelp("]", "next search page"),
+	),
+	ToggleStores: key.NewBinding(
+		key.WithKeys("c"),
+		key.WithHelp("c", "toggle stores"),
 	),
 }

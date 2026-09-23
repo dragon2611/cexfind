@@ -42,6 +42,9 @@
     .details { display: inline-block; width: 600px; margin-left: 53px; font-size: 11pt;}
     .details .cash { font-size: 11pt;}
     .details .exchange { font-size: 11pt;}
+    .store-toggle { margin-bottom: 10px; }
+    .store-list { margin-top: 3px; }
+    .store-list summary { cursor: pointer; }
 </style>
 <title>{{.Title}}</title>
 <script src="./static/htmx.min.js"></script>
@@ -94,6 +97,25 @@ Select "strict" for results that narrowly match the search criteria.</p>
 </div>
 <div id="results" {{ if .Search.Query }}hx-post="./results" hx-trigger="load" hx-include="#trip" hx-vals='{"page":{{ .Search.Page }}}' hx-target="#results"{{ end }}>
 </div>
+<script>
+    let storesCollapsed = false;
+    document.getElementById("results").addEventListener("click", (event) => {
+        if (!event.target.matches("[data-toggle-stores]")) return;
+        storesCollapsed = !storesCollapsed;
+        document.querySelectorAll("#results .store-list").forEach((store) => {
+            store.open = !storesCollapsed;
+        });
+        event.target.textContent = storesCollapsed ? "Expand all stores" : "Collapse all stores";
+    });
+    document.getElementById("results").addEventListener("htmx:afterSwap", () => {
+        if (!storesCollapsed) return;
+        document.querySelectorAll("#results .store-list").forEach((store) => {
+            store.open = false;
+        });
+        const toggle = document.querySelector("#results [data-toggle-stores]");
+        if (toggle) toggle.textContent = "Expand all stores";
+    });
+</script>
 {{ if .LocationDistancesOK }}
 <script>
     const postcode = document.getElementById("postcode");

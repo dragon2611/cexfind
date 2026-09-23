@@ -17,6 +17,8 @@ proxy.
 Search results are fetched one upstream page at a time, with up to 50 hits
 per query. While the result list is focused, press `]` for the next search
 page or `[` for the previous one. The list's own scrolling stays separate.
+Press `c` while the result list is focused to collapse or expand all store
+names; cash and exchange prices remain visible.
 
 Press Tab to reach the sort field, then Space or `x` to cycle through
 model, price low to high, price high to low, and nearest store. Enter a

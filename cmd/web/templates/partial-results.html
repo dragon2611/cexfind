@@ -7,6 +7,7 @@
 {{ end }}
 
 {{- if .Results }}
+<button type="button" class="store-toggle" data-toggle-stores aria-controls="result-listing">Collapse all stores</button>
 <div id="result-listing">
 {{ $currentModel := "" }}
 {{ range $box := .Results }}
@@ -26,10 +27,13 @@
     <span class="name">{{ $box.Name }}<br />[{{ $box.Category }}]</span>
     <span class="boxid"><a href="{{ $box.IDUrl }}">{{ $box.ID }}</a></span>
     {{ if ne $.Sort "model" }}<span class="model-name">{{ $box.Model }}</span>{{ end }}
-    <span class="details">
+    <div class="details">
         <span class="cash">&pound;{{ $box.PriceCash }}/</span><span class="exchange">&pound;{{ $box.PriceExchange }}</span>
-        {{ $box.StoresString -1 }}
-    </span>
+        {{ if $box.Stores }}<details class="store-list" open>
+            <summary>Stores ({{ len $box.Stores }})</summary>
+            <span>{{ $box.StoresString -1 }}</span>
+        </details>{{ end }}
+    </div>
 </li>
 {{ end }}
 </ul>

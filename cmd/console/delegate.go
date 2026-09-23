@@ -82,6 +82,7 @@ type CustomItem interface {
 	list.Item
 	Title() string
 	Description() string
+	NoStoresDescription() string
 	IsHeading() bool
 }
 
@@ -99,12 +100,13 @@ type CustomItem interface {
 // Settings ShortHelpFunc and FullHelpFunc is optional. They can be set to
 // include items in the list's default short and full help menus.
 type CustomDelegate struct {
-	Styles        CustomItemStyles
-	UpdateFunc    func(tea.Msg, *list.Model) tea.Cmd
-	ShortHelpFunc func() []key.Binding
-	FullHelpFunc  func() [][]key.Binding
-	height        int
-	spacing       int
+	Styles         CustomItemStyles
+	CollapseStores bool
+	UpdateFunc     func(tea.Msg, *list.Model) tea.Cmd
+	ShortHelpFunc  func() []key.Binding
+	FullHelpFunc   func() [][]key.Binding
+	height         int
+	spacing        int
 }
 
 // NewCustomDelegate creates a new delegate with default styles.
@@ -159,6 +161,9 @@ func (d CustomDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 		title = i.Title()
 		description = i.Description()
 		isHeading = i.IsHeading()
+		if d.CollapseStores && i.NoStoresDescription() != "" {
+			description = i.NoStoresDescription()
+		}
 	} else {
 		return
 	}

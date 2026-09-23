@@ -19,23 +19,26 @@ import (
 //
 // function
 type item struct {
-	title       string // a rendered title
-	description string // a rendered description
-	isHeading   bool
-	url         string // the url to see this item
+	title               string // a rendered title
+	description         string // a rendered description
+	noStoresDescription string // description without store names
+	isHeading           bool
+	url                 string // the url to see this item
 }
 
 // emptyItem is s special "empty" item to provide padding between item
 // headings
 const emptyItem = "-empty-"
 
-func (i item) Title() string       { return i.title }
-func (i item) Description() string { return i.description }
-func (i item) IsHeading() bool     { return i.isHeading }
-func (i item) FilterValue() string { return i.title }
+func (i item) Title() string               { return i.title }
+func (i item) Description() string         { return i.description }
+func (i item) NoStoresDescription() string { return i.noStoresDescription }
+func (i item) IsHeading() bool             { return i.isHeading }
+func (i item) FilterValue() string         { return i.title }
 
 type liModel struct {
-	list list.Model
+	list            list.Model
+	storesCollapsed bool
 }
 
 // newLiModel create a new liModel with the relevant delegate. The 0, 0
@@ -51,6 +54,14 @@ func newLiModel() liModel {
 	li.list.SetShowPagination(true)
 
 	return li
+}
+
+// ToggleStores hides or shows store names for every result on the page.
+func (li *liModel) ToggleStores() {
+	li.storesCollapsed = !li.storesCollapsed
+	delegate := NewCustomDelegate()
+	delegate.CollapseStores = li.storesCollapsed
+	li.list.SetDelegate(delegate)
 }
 
 // bubbletea Init

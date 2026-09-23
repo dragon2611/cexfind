@@ -355,6 +355,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// log.Printf("state %s input.focus %v key '%s'", m.state, m.input.input.Focused(), msg.String())
 		if m.state == listState {
+			if key.Matches(msg, listKeys.ToggleStores) {
+				m.list.ToggleStores()
+				return m, nil
+			}
 			page := m.page
 			switch {
 			case key.Matches(msg, listKeys.PreviousSearchPage) && page > 0:

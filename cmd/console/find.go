@@ -76,9 +76,10 @@ func find(m *model, query string, strict bool, postcode string, page int) (items
 		}
 		// add standard item
 		items = append(items, item{
-			title:       fmt.Sprintf(boxTitleTpl, box.Price.IntPart(), box.Name, box.Category),
-			description: fmt.Sprintf(boxDescriptionTpl, box.PriceCash.IntPart(), box.PriceExchange.IntPart(), box.StoresString(80)),
-			url:         box.IDUrl(),
+			title:               fmt.Sprintf(boxTitleTpl, box.Price.IntPart(), box.Name, box.Category),
+			description:         fmt.Sprintf(boxDescriptionTpl, box.PriceCash.IntPart(), box.PriceExchange.IntPart(), box.StoresString(80)),
+			noStoresDescription: fmt.Sprintf("     (£%d/£%d)", box.PriceCash.IntPart(), box.PriceExchange.IntPart()),
+			url:                 box.IDUrl(),
 		})
 	}
 	return

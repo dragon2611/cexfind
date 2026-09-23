@@ -116,6 +116,29 @@ func TestResultsPagination(t *testing.T) {
 	}
 }
 
+func TestResultsStoreDisclosure(t *testing.T) {
+	s, err := newServer("", "", "", &srch{f: func() ([]cexfind.Box, error) {
+		return []cexfind.Box{{
+			ID: "item", Model: "Test", Name: "Test item",
+			Stores: []location.StoreWithDistance{{StoreName: "London"}, {StoreName: "Bristol"}},
+		}}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.DirFS = &fileSystem{TplFS: os.DirFS("templates")}
+	w := httptest.NewRecorder()
+	s.Results(w, httptest.NewRequest(http.MethodPost, "/results", strings.NewReader("query=test")))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d, body %s", w.Code, w.Body.String())
+	}
+	for _, want := range []string{`data-toggle-stores`, `Collapse all stores`, `<details class="store-list" open>`, `Stores (2)`, `London, Bristol`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("result missing %q", want)
+		}
+	}
+}
+
 func TestHomeLoadsSelectedPage(t *testing.T) {
 	s, err := newServer("", "", "", &srch{})
 	if err != nil {
