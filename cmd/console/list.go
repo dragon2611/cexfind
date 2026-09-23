@@ -75,7 +75,10 @@ func (li liModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			li.Prev()
 			return li, cmd // return early to override default list.CursorUp()
 		case key.Matches(msg, listKeys.Enter):
-			i := li.list.SelectedItem().(item)
+			i, ok := li.list.SelectedItem().(item)
+			if !ok || i.url == "" {
+				return li, nil
+			}
 			cmd = func() tea.Msg {
 				return listEnterMsg{
 					title: i.title,
@@ -105,6 +108,9 @@ func (li liModel) View() string {
 // Next skips down to the next non empty, non heading item utilizing
 // list.CursorDown under the hood for pagination logic etc
 func (li *liModel) Next() {
+	if len(li.list.Items()) == 0 {
+		return
+	}
 	for i := 1; i < 4; i++ {
 		li.list.CursorDown() // utilize list.CursorDown
 		thisItem := li.list.SelectedItem().(item)
@@ -118,6 +124,9 @@ func (li *liModel) Next() {
 // Prev skips up to the next non empty, non heading item utilizing
 // list.CursorUp under the hood for pagination logic etc
 func (li *liModel) Prev() {
+	if len(li.list.Items()) == 0 {
+		return
+	}
 	for i := 1; i < 4; i++ {
 		li.list.CursorUp() // utilize list.CursorUp
 		thisItem := li.list.SelectedItem().(item)
@@ -132,6 +141,9 @@ func (li *liModel) Prev() {
 // appropriately
 func (li *liModel) ReplaceList(items []list.Item) tea.Cmd {
 	var cmd = li.list.SetItems(items)
+	if len(items) == 0 {
+		return cmd
+	}
 	if li.list.Index() != 0 {
 		li.list.Select(0)
 	}

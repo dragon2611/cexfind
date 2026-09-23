@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/rorycl/cexfind"
 )
 
 var (
@@ -44,6 +45,8 @@ var (
 	checkBoxNormalStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.AdaptiveColor{Light: "#ff982e", Dark: "#ff982e"}).
 				MarginTop(1)
+	sortFocusedStyle = checkBoxFocusedStyle
+	sortNormalStyle  = checkBoxNormalStyle
 )
 
 // inCursor tracks the cursor state between the input and checkboxes
@@ -53,6 +56,7 @@ const (
 	cursorInput inCursor = iota
 	cursorPostcode
 	cursorBox
+	cursorSort
 )
 
 // inModel is the main model
@@ -61,6 +65,7 @@ type inModel struct {
 	checkbox bool
 	postcode textinput.Model
 	cursor   inCursor
+	sortBy   string
 }
 
 // newInModel constructs a new inModel input model
@@ -70,7 +75,7 @@ func newInModel() inModel {
 	t.CharLimit = 70
 	t.Placeholder = "enter terms"
 	t.PromptStyle = inFocusedStyle
-	t.Width = 60
+	t.Width = 54
 
 	p := textinput.New()
 	p.Cursor.Style = postcodeNormalStyle
@@ -83,6 +88,7 @@ func newInModel() inModel {
 		input:    t,
 		postcode: p,
 		checkbox: false,
+		sortBy:   cexfind.SortModel,
 	}
 }
 
@@ -105,6 +111,39 @@ func (in *inModel) checkBoxAsString() string {
 	return checkBoxNormalStyle.Render("strict [ ]")
 }
 
+func (in *inModel) sortAsString() string {
+	label := "model"
+	switch in.sortBy {
+	case cexfind.SortPrice:
+		label = "price low"
+	case cexfind.SortPriceDesc:
+		label = "price high"
+	case cexfind.SortDistance:
+		label = "distance"
+	}
+	if in.cursor == cursorSort {
+		return sortFocusedStyle.Render(" sort: " + label)
+	}
+	return sortNormalStyle.Render(" sort: " + label)
+}
+
+func (in *inModel) cycleSort() {
+	switch in.sortBy {
+	case cexfind.SortModel:
+		in.sortBy = cexfind.SortPrice
+	case cexfind.SortPrice:
+		in.sortBy = cexfind.SortPriceDesc
+	case cexfind.SortPriceDesc:
+		if strings.TrimSpace(in.postcode.Value()) != "" {
+			in.sortBy = cexfind.SortDistance
+		} else {
+			in.sortBy = cexfind.SortModel
+		}
+	default:
+		in.sortBy = cexfind.SortModel
+	}
+}
+
 // View is the bubbletea View function which renders the top panel of
 // the TUI, containing both the search bar and "strict" checkbox.
 func (in inModel) View() string {
@@ -117,6 +156,7 @@ func (in inModel) View() string {
 			in.input.View(),
 			in.postcode.View(),
 			in.checkBoxAsString(),
+			in.sortAsString(),
 		),
 	)
 	return b.String()
@@ -138,15 +178,15 @@ func (in inModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	// selector in cursor focus area
-	if in.cursor == cursorBox {
+	if in.cursor == cursorBox || in.cursor == cursorSort {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
 			switch {
 			case key.Matches(msg, inputKeys.Selector):
-				if in.checkbox {
-					in.checkbox = false
+				if in.cursor == cursorSort {
+					in.cycleSort()
 				} else {
-					in.checkbox = true
+					in.checkbox = !in.checkbox
 				}
 				return in, nil
 			}
@@ -157,6 +197,9 @@ func (in inModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 	in.postcode, cmd = in.postcode.Update(msg)
 	cmds = append(cmds, cmd)
+	if in.sortBy == cexfind.SortDistance && strings.TrimSpace(in.postcode.Value()) == "" {
+		in.sortBy = cexfind.SortModel
+	}
 	return in, tea.Batch(cmds...)
 }
 

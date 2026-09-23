@@ -314,20 +314,36 @@ func (c *CexFind) LocationDistancesOK() bool {
 // model, then by price ascending. Duplicate results are removed at
 // aggregation.
 func (cex *CexFind) Search(queries []string, strict bool, postcode string) ([]Box, error) {
+	results, _, err := cex.SearchPage(queries, strict, postcode, 0)
+	return results, err
+}
+
+// SearchPage returns one zero-based page of results and whether a later page
+// is available from any of the upstream queries. Each query supplies at most
+// 50 hits on a page; strict filtering and duplicate removal may reduce that.
+func (cex *CexFind) SearchPage(queries []string, strict bool, postcode string, page int) ([]Box, bool, error) {
+	if page < 0 || page > 999 {
+		return nil, false, fmt.Errorf("page must be between 0 and 999")
+	}
 	var allBoxes boxes
 	var idMap = make(map[string]struct{})
+	hasMore := false
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var err error
 
-	results, err := makeQueries(ctx, cex.client, queries, strict)
+	results, err := makeQueries(ctx, cex.client, queries, strict, page)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	for br := range results {
+		if br.metadataOnly {
+			hasMore = hasMore || br.hasMore
+			continue
+		}
 		if br.err != nil {
 			if err != nil {
 				err = fmt.Errorf("\"%s\": %w\n%w", br.query, br.err, err)
@@ -347,20 +363,20 @@ func (cex *CexFind) Search(queries []string, strict bool, postcode string) ([]Bo
 		br.box.Stores, err = cex.storeDistances.Distances(postcode, br.box.storeNames)
 		if err != nil {
 			err = fmt.Errorf("postcode error: %w", err)
-			return nil, err
+			return nil, false, err
 		}
 
 		allBoxes = append(allBoxes, br.box)
 		idMap[br.box.ID] = struct{}{}
 	}
 	allBoxes.sort()
-	if len(allBoxes) == 0 {
+	if len(allBoxes) == 0 && page == 0 {
 		if err != nil {
 			err = fmt.Errorf("%w", err)
 		} else {
 			err = errors.New("no results")
 		}
-		return allBoxes, err
+		return allBoxes, hasMore, err
 	}
-	return allBoxes, err
+	return allBoxes, hasMore, err
 }

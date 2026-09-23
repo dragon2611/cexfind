@@ -1,6 +1,7 @@
 debug.log
 go.work
 \.*
+!.dockerignore
 /cli
 /webserver
 /bin/webserver*
@@ -9,4 +10,4 @@ go.work
 cover.html
 cover.rpt
 coverage.out
-deploy
+/deploy/

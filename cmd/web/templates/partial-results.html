@@ -10,16 +10,22 @@
 <div id="result-listing">
 {{ $currentModel := "" }}
 {{ range $box := .Results }}
+{{ if eq $.Sort "model" }}
 {{ if ne $currentModel $box.Model }}
-{{ if eq $currentModel "" }}</ul>{{ end }}
+{{ if ne $currentModel "" }}</ul>{{ end }}
 <p class="model">{{- $box.Model }}</p>
 <ul>
 {{ $currentModel = $box.Model }}
 {{ end }} {{/* end of Model check */}}
+{{ else if eq $currentModel "" }}
+<ul>
+{{ $currentModel = "sorted" }}
+{{ end }}
 <li>
     <span class="price">&pound;{{ $box.Price }}</span>
     <span class="name">{{ $box.Name }}<br />[{{ $box.Category }}]</span>
     <span class="boxid"><a href="{{ $box.IDUrl }}">{{ $box.ID }}</a></span>
+    {{ if ne $.Sort "model" }}<span class="model-name">{{ $box.Model }}</span>{{ end }}
     <span class="details">
         <span class="cash">&pound;{{ $box.PriceCash }}/</span><span class="exchange">&pound;{{ $box.PriceExchange }}</span>
         {{ $box.StoresString -1 }}
@@ -30,4 +36,12 @@
 </div>
 
 {{- end }} {{/* end not error */}}
-</p>
+{{ if and (not .Results) (not .Err) }}<p>No results on this page.</p>{{ end }}
+
+{{ if or .HasPrevious .HasNext }}
+<nav class="pagination" aria-label="Result pages">
+    {{ if .HasPrevious }}<button type="button" hx-post="./results" hx-include="#trip" hx-vals='{"page":{{ .PreviousPage }}}' hx-target="#results">Previous</button>{{ end }}
+    <span>Page {{ .Page }}</span>
+    {{ if .HasNext }}<button type="button" hx-post="./results" hx-include="#trip" hx-vals='{"page":{{ .NextPage }}}' hx-target="#results">Next</button>{{ end }}
+</nav>
+{{ end }}

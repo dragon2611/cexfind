@@ -3,9 +3,9 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,22 +38,26 @@ const emptyItemOn bool = false
 // search failure since more than one query may have been made. In the
 // case of an error for one query and results from others, for example,
 // both an error and items will be returned.
-func find(m *model, query string, strict bool, postcode string) (items []list.Item, itemNo int, err error) {
+func find(m *model, query string, strict bool, postcode string, page int) (items []list.Item, itemNo int, hasMore bool, err error) {
 
 	queries, err := cmd.QueryInputChecker(query)
 	if err != nil {
-		return items, 0, err
+		return items, 0, false, err
 	}
 
 	var results []cex.Box
 	log.Printf("  making search for %v, strict %t", queries, strict)
 
 	// note that err does not cause a failure
-	results, err = m.cex.Search(queries, strict, postcode)
+	results, hasMore, err = m.cex.SearchPage(queries, strict, postcode, page)
+	order := m.input.sortBy
+	if order == cex.SortDistance && strings.TrimSpace(postcode) == "" {
+		order = cex.SortModel
+	}
+	cex.SortBoxes(results, order)
 
 	log.Printf("results %#v\nerr %v", results, err)
-	if results == nil {
-		err = errors.New("no results found")
+	if err != nil && len(results) == 0 {
 		return
 	}
 	itemNo = len(results)
@@ -81,12 +85,15 @@ func find(m *model, query string, strict bool, postcode string) (items []list.It
 }
 
 // findLocal simple returns the example list in list_example.go
-func findLocal(m *model, query string, strict bool, postcode string) (items []list.Item, itemNo int, err error) {
+func findLocal(m *model, query string, strict bool, postcode string, page int) (items []list.Item, itemNo int, hasMore bool, err error) {
 	_, err = cmd.QueryInputChecker(query)
 	if err != nil {
-		return items, 0, err
+		return items, 0, false, err
 	}
-	return theseExampleItems, 15, nil
+	if page > 0 {
+		return nil, 0, false, nil
+	}
+	return theseExampleItems, 15, false, nil
 }
 
 const boxTitleTpl string = "£%-3d %s [%s]"
@@ -97,17 +104,19 @@ type findPerformMsg struct {
 	query    string
 	strict   bool
 	postcode string
+	page     int
 }
 
 // findPerform wraps a findPerformMsg in a tea.Cmd for deferred
 // processing. See bubbleta/tutorials/commands
-func findPerform(query string, strict bool, postcode string) tea.Cmd {
+func findPerform(query string, strict bool, postcode string, page int) tea.Cmd {
 	log.Println("   query triggered", query, strict, postcode)
 	return func() tea.Msg {
 		return findPerformMsg{
 			query:    query,
 			strict:   strict,
 			postcode: postcode,
+			page:     page,
 		}
 	}
 }

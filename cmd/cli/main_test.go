@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -29,6 +30,8 @@ func TestMainFlags(t *testing.T) {
 		hasPostcode string
 		hasProxy    string
 		numQueries  int
+		page        int
+		sortBy      string
 	}{
 		{
 			args:     []string{"prog"},
@@ -39,12 +42,14 @@ func TestMainFlags(t *testing.T) {
 			exitCode:   0,
 			isStrict:   false,
 			numQueries: 1,
+			page:       1,
 		},
 		{
 			args:       []string{"prog", "-strict", "-query", "query 1", "-query", "query 2"},
 			exitCode:   0,
 			isStrict:   true,
 			numQueries: 2,
+			page:       1,
 		},
 		{
 			args:       []string{"prog", "-strict", "-verbose", "-query", "query 1", "-query", "query 2"},
@@ -52,6 +57,7 @@ func TestMainFlags(t *testing.T) {
 			isStrict:   true,
 			isVerbose:  true,
 			numQueries: 2,
+			page:       1,
 		},
 		{
 			args:        []string{"prog", "-postcode", "SW1A 0AA", "-strict", "-verbose", "-query", "query 1", "-query", "query 2"},
@@ -60,6 +66,7 @@ func TestMainFlags(t *testing.T) {
 			isVerbose:   true,
 			hasPostcode: "SW1A 0AA",
 			numQueries:  2,
+			page:        1,
 		},
 		{
 			args:        []string{"prog", "-postcode", "SW1A 0AA", "-strict", "-verbose", "-query", "query 1", "-query", "query 2", "-proxy", "socks5://127.0.0.1:8081"},
@@ -69,6 +76,33 @@ func TestMainFlags(t *testing.T) {
 			hasPostcode: "SW1A 0AA",
 			hasProxy:    "socks5://127.0.0.1:8081",
 			numQueries:  2,
+			page:        1,
+		},
+		{
+			args:       []string{"prog", "-page", "3", "-query", "query 1"},
+			numQueries: 1,
+			page:       3,
+		},
+		{
+			args:       []string{"prog", "-page", "2", "-sort", "price-desc", "-query", "query 1"},
+			numQueries: 1,
+			page:       2,
+			sortBy:     cex.SortPriceDesc,
+		},
+		{
+			args:        []string{"prog", "-postcode", "SW1A 0AA", "-sort", "distance", "-query", "query 1"},
+			hasPostcode: "SW1A 0AA",
+			numQueries:  1,
+			page:        1,
+			sortBy:      cex.SortDistance,
+		},
+		{
+			args:     []string{"prog", "-sort", "distance", "-query", "query 1"},
+			exitCode: 1,
+		},
+		{
+			args:     []string{"prog", "-sort", "unknown", "-query", "query 1"},
+			exitCode: 1,
 		},
 	}
 
@@ -80,7 +114,7 @@ func TestMainFlags(t *testing.T) {
 
 		os.Args = tt.args
 
-		queries, strict, postCode, proxy, verbose := flagGet()
+		queries, strict, postCode, proxy, verbose, page, sortBy := flagGet()
 		t.Logf("subtest %d, args %v", i, tt.args)
 		t.Logf("subtest %d, strict %v postcode %v verbose %v queries %v", i, strict, postCode, verbose, queries)
 		if got, want := exit, tt.exitCode; got != want {
@@ -104,6 +138,16 @@ func TestMainFlags(t *testing.T) {
 		if got, want := len(queries), tt.numQueries; got != want {
 			t.Errorf("num queries got %d expected %d", got, want)
 		}
+		if page != tt.page {
+			t.Errorf("page got %d expected %d", page, tt.page)
+		}
+		wantSort := tt.sortBy
+		if wantSort == "" {
+			wantSort = cex.SortModel
+		}
+		if sortBy != wantSort {
+			t.Errorf("sort got %q expected %q", sortBy, wantSort)
+		}
 	}
 }
 
@@ -111,7 +155,7 @@ func TestMainMain(t *testing.T) {
 
 	tests := []struct {
 		output     string
-		flagGetter func() (queriesType, bool, string, string, bool)
+		flagGetter func() (queriesType, bool, string, string, bool, int, string)
 	}{
 		{
 			output: `
@@ -129,8 +173,8 @@ Lenovo X390
 ✱ 360 Lenovo X390/i7-8665U/16GB Ram/512GB SSD/13"/W11/B [Laptops - Windows]
       https://uk.webuy.com/product-detail?id=PALSLENX39097B
 `,
-			flagGetter: func() (queriesType, bool, string, string, bool) {
-				return queriesType{"nonstrict", "nonverbose"}, false, "", "", false
+			flagGetter: func() (queriesType, bool, string, string, bool, int, string) {
+				return queriesType{"nonstrict", "nonverbose"}, false, "", "", false, 1, cex.SortModel
 			},
 		},
 		{
@@ -156,8 +200,8 @@ Lenovo X390
       https://uk.webuy.com/product-detail?id=PALSLENX39097B
       (169/240) store 1, store 2
 `,
-			flagGetter: func() (queriesType, bool, string, string, bool) {
-				return queriesType{"nonstrict", "verbose"}, false, "", "", true
+			flagGetter: func() (queriesType, bool, string, string, bool, int, string) {
+				return queriesType{"nonstrict", "verbose"}, false, "", "", true, 1, cex.SortModel
 			},
 		},
 	}
@@ -203,4 +247,44 @@ Lenovo X390
 		})
 	}
 
+}
+
+func TestMainPriceSort(t *testing.T) {
+	contents, err := os.ReadFile("../../testdata/example.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, string(contents))
+	}))
+	defer ts.Close()
+
+	oldURL := cex.URL
+	cex.URL = ts.URL
+	defer func() { cex.URL = oldURL }()
+	oldFlagGetter := flagGetter
+	flagGetter = func() (queriesType, bool, string, string, bool, int, string) {
+		return queriesType{"lenovo x390"}, false, "", "", false, 1, cex.SortPriceDesc
+	}
+	defer func() { flagGetter = oldFlagGetter }()
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	main()
+	w.Close()
+	os.Stdout = oldStdout
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := strings.Index(string(out), "✱ 360")
+	last := strings.Index(string(out), "✱ 175")
+	if first < 0 || last < 0 || first > last {
+		t.Errorf("price-desc did not put the highest price first:\n%s", out)
+	}
 }

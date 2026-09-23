@@ -66,6 +66,10 @@ func (s status) setCheckbox() status {
 	return status("space or 'x' to select strict searching, enter to search")
 }
 
+func (s status) setSorting() status {
+	return status("space or 'x' to change sort order; add a postcode for distance")
+}
+
 // status on finding items
 func (s status) setFoundItems(n int) status {
 	i := "item"
@@ -74,6 +78,18 @@ func (s status) setFoundItems(n int) status {
 	}
 	tpl := "%d %s found. Copy an item's url by pressing enter"
 	return status(fmt.Sprintf(tpl, n, i))
+}
+
+func (s status) setFoundItemsPage(n, page int, hasMore bool) status {
+	message := fmt.Sprintf("%d items on page %d", n, page+1)
+	if page > 0 {
+		message += " · [ previous"
+	}
+	if hasMore {
+		message += " · ] next"
+	}
+	message += ". Enter copies an item's url"
+	return status(message)
 }
 
 // status on copying to clipboard

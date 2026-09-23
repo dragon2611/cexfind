@@ -13,12 +13,14 @@ import (
 	"testing"
 
 	"github.com/rorycl/cexfind"
+	"github.com/rorycl/cexfind/location"
 	"github.com/shopspring/decimal"
 )
 
 type srch struct {
-	f       func() ([]cexfind.Box, error)
-	locDist bool
+	f        func() ([]cexfind.Box, error)
+	pageFunc func(int) ([]cexfind.Box, bool, error)
+	locDist  bool
 }
 
 func (s *srch) Search(queries []string, strict bool, postcode string) ([]cexfind.Box, error) {
@@ -26,6 +28,65 @@ func (s *srch) Search(queries []string, strict bool, postcode string) ([]cexfind
 		return []cexfind.Box{}, nil
 	} else {
 		return s.f()
+	}
+}
+func (s *srch) SearchPage(queries []string, strict bool, postcode string, page int) ([]cexfind.Box, bool, error) {
+	if s.pageFunc != nil {
+		return s.pageFunc(page)
+	}
+	results, err := s.Search(queries, strict, postcode)
+	return results, false, err
+}
+
+func TestResultsPagination(t *testing.T) {
+	requestedPage := -1
+	s, err := newServer("", "", "", &srch{pageFunc: func(page int) ([]cexfind.Box, bool, error) {
+		requestedPage = page
+		return []cexfind.Box{{ID: "second-page", Model: "Test", Name: "Test item"}}, true, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.DirFS = &fileSystem{TplFS: os.DirFS("templates")}
+	w := httptest.NewRecorder()
+	s.Results(w, httptest.NewRequest(http.MethodPost, "/results", strings.NewReader("query=test&page=1")))
+	if requestedPage != 1 || w.Code != http.StatusOK {
+		t.Fatalf("requested page %d, status %d", requestedPage, w.Code)
+	}
+	for _, want := range []string{`page=1`, `Page 2`, `"page":0`, `"page":2`, `second-page`} {
+		content := w.Body.String()
+		if want == "page=1" {
+			content = w.Header().Get("HX-Push-Url")
+		}
+		if !strings.Contains(content, want) {
+			t.Errorf("missing %q in %q", want, content)
+		}
+	}
+
+	for _, page := range []string{"-1", "1000", "invalid"} {
+		w = httptest.NewRecorder()
+		s.Results(w, httptest.NewRequest(http.MethodPost, "/results", strings.NewReader("query=test&page="+page)))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("page %q status %d, want 400", page, w.Code)
+		}
+	}
+}
+
+func TestHomeLoadsSelectedPage(t *testing.T) {
+	s, err := newServer("", "", "", &srch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.DirFS = &fileSystem{TplFS: os.DirFS("templates")}
+	w := httptest.NewRecorder()
+	s.Home(w, httptest.NewRequest(http.MethodGet, "/?query=test&page=1", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	for _, want := range []string{`hx-trigger="load"`, `"page":1`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("missing %q in home page", want)
+		}
 	}
 }
 func (s *srch) LocationDistancesOK() bool {
@@ -89,6 +150,28 @@ func TestHome(t *testing.T) {
 
 	if want, got := 200, res.StatusCode; want != got {
 		t.Errorf("expected status %d, got %d", want, got)
+	}
+}
+
+func TestHomeSortOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name, url, option string
+	}{
+		{"no postcode", "http://example.com/", `<option value="distance"  disabled>`},
+		{"postcode and distance sort", "http://example.com/?postcode=SW1A+0AA&sort=distance", `<option value="distance" selected >`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := newServer("", "", "", &srch{locDist: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.DirFS = &fileSystem{TplFS: os.DirFS("templates")}
+			w := httptest.NewRecorder()
+			s.Home(w, httptest.NewRequest(http.MethodGet, tc.url, nil))
+			if !strings.Contains(w.Body.String(), tc.option) {
+				t.Errorf("distance option %q not found in home page", tc.option)
+			}
+		})
 	}
 }
 
@@ -239,6 +322,89 @@ func TestResults(t *testing.T) {
 				t.Errorf("expected status %d, got %d", tc.statusCode, res.StatusCode)
 			}
 
+		})
+	}
+}
+
+func TestSortResults(t *testing.T) {
+	boxes := []cexfind.Box{
+		{ID: "expensive", Model: "a", Price: decimal.NewFromInt(100), Stores: []location.StoreWithDistance{{StoreID: 1, DistanceMiles: 20}}},
+		{ID: "unknown", Model: "b", Price: decimal.NewFromInt(30), Stores: []location.StoreWithDistance{{StoreName: "Unknown", DistanceMiles: 0}}},
+		{ID: "near", Model: "c", Price: decimal.NewFromInt(50), Stores: []location.StoreWithDistance{{StoreID: 2, DistanceMiles: 8}, {StoreID: 3, DistanceMiles: 2}}},
+	}
+	tests := []struct {
+		order string
+		want  []string
+	}{
+		{"price", []string{"unknown", "near", "expensive"}},
+		{"price-desc", []string{"expensive", "near", "unknown"}},
+		{"distance", []string{"near", "expensive", "unknown"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.order, func(t *testing.T) {
+			got := append([]cexfind.Box(nil), boxes...)
+			cexfind.SortBoxes(got, tc.order)
+			for i, box := range got {
+				if box.ID != tc.want[i] {
+					t.Errorf("position %d: got %s, want %s", i, box.ID, tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestResultsSortSelection(t *testing.T) {
+	s, err := newServer("", "", "", &srch{
+		locDist: true,
+		f: func() ([]cexfind.Box, error) {
+			return []cexfind.Box{
+				{ID: "far", Model: "a", Price: decimal.NewFromInt(10), Stores: []location.StoreWithDistance{{StoreID: 1, DistanceMiles: 20}}},
+				{ID: "near", Model: "b", Price: decimal.NewFromInt(20), Stores: []location.StoreWithDistance{{StoreID: 2, DistanceMiles: 2}}},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.DirFS = &fileSystem{TplFS: os.DirFS("templates")}
+
+	for _, tc := range []struct {
+		name, body, pushedSort, firstID string
+	}{
+		{"distance with postcode", "query=abc&postcode=SW1A+0AA&sort=distance", "sort=distance", "near"},
+		{"distance without postcode", "query=abc&sort=distance", "", "far"},
+		{"price descending", "query=abc&sort=price-desc", "sort=price-desc", "near"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "/results", strings.NewReader(tc.body))
+			w := httptest.NewRecorder()
+			s.Results(w, r)
+			res := w.Result()
+			defer res.Body.Close()
+			content, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.StatusCode != http.StatusOK {
+				t.Fatalf("status %d: %s", res.StatusCode, content)
+			}
+			if !strings.Contains(res.Header.Get("HX-Push-Url"), tc.pushedSort) {
+				t.Errorf("push URL %q does not contain %q", res.Header.Get("HX-Push-Url"), tc.pushedSort)
+			}
+			if tc.pushedSort == "" && strings.Contains(res.Header.Get("HX-Push-Url"), "sort=") {
+				t.Errorf("unexpected sort in push URL: %q", res.Header.Get("HX-Push-Url"))
+			}
+			first := strings.Index(string(content), ">"+tc.firstID+"</a>")
+			if first < 0 {
+				t.Fatalf("first ID %q missing from response", tc.firstID)
+			}
+			otherID := "far"
+			if tc.firstID == "far" {
+				otherID = "near"
+			}
+			if other := strings.Index(string(content), ">"+otherID+"</a>"); other < 0 || first > other {
+				t.Errorf("wrong result order: %s", content)
+			}
 		})
 	}
 }

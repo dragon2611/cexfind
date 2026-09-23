@@ -61,10 +61,11 @@ const (
 	inputState
 	postcodeState
 	checkboxState
+	sortState
 )
 
 func (s state) String() string {
-	return []string{"list", "input", "postcode", "checkbox"}[s]
+	return []string{"list", "input", "postcode", "checkbox", "sort"}[s]
 }
 
 // model contains a model for the textinput model and list model,
@@ -83,9 +84,14 @@ type model struct {
 	cex *cexfind.CexFind
 
 	// flags etc.
-	state   state
-	listLen int
-	inited  bool
+	state    state
+	listLen  int
+	inited   bool
+	page     int
+	hasMore  bool
+	query    string
+	strict   bool
+	postcode string
 
 	// keys are the current key set based on the focus state, switched
 	// through getKeyMap in keymap.go
@@ -93,7 +99,7 @@ type model struct {
 
 	// find function indirector allows for local/testing swapping of
 	// functions
-	finder func(m *model, query string, strict bool, postcode string) (items []list.Item, itemNo int, err error)
+	finder func(m *model, query string, strict bool, postcode string, page int) (items []list.Item, itemNo int, hasMore bool, err error)
 }
 
 // NewModel creates a new model containing the input, status and list
@@ -191,6 +197,15 @@ func (m *model) stateSwitch(targetState state, withStatus bool) tea.Cmd {
 		if withStatus {
 			m.status = m.status.setCheckbox()
 		}
+	case sortState:
+		m.input.cursor = cursorSort
+		m.input.input.Blur()
+		m.input.postcode.Blur()
+		m.input.postcode.Cursor.Blur()
+		m.keys = getKeyMap(inputKeysState)
+		if withStatus {
+			m.status = m.status.setSorting()
+		}
 	case listState:
 		m.input.cursor = cursorInput
 		m.input.input.Blur()
@@ -234,7 +249,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case inputEnterMsg:
 		log.Printf("inputEnterMsg received %v", msg)
 		m.status = m.status.setSearching(string(msg))
-		return m, findPerform(string(msg), m.input.checkbox, m.input.postcode.Value())
+		m.query, m.strict, m.postcode = string(msg), m.input.checkbox, m.input.postcode.Value()
+		return m, findPerform(m.query, m.strict, m.postcode, 0)
 
 	// data was selected in the list view; reset the status after a
 	// short wait
@@ -254,10 +270,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case findPerformMsg:
 		time.Sleep(250 * time.Millisecond) // give time for status to show
 		log.Printf("findPerformMsg received %v", msg)
-		items, num, err := m.finder(&m, msg.query, msg.strict, msg.postcode)
+		items, num, hasMore, err := m.finder(&m, msg.query, msg.strict, msg.postcode, msg.page)
 		var cmd tea.Cmd
 		switch {
 		case num > 0 && err != nil:
+			m.page, m.hasMore = msg.page, hasMore
 			// show the list results and change focus there, but also
 			// 1. show the error for a second in the status area
 			// 2. then show the normal "found" status
@@ -287,8 +304,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		default:
 			// standard, non-error list
+			m.page, m.hasMore = msg.page, hasMore
 			m.listLen = num
-			m.status = m.status.setFoundItems(num)
+			m.status = m.status.setFoundItemsPage(num, m.page, m.hasMore)
 			cmd = m.list.ReplaceList(items)
 			cmds = append(cmds, cmd)
 			cmd = m.stateSwitch(listState, false) // switch to list view
@@ -298,7 +316,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// reset the list status
 	case resetListStatus:
-		m.status = m.status.setFoundItems(m.listLen)
+		m.status = m.status.setFoundItemsPage(m.listLen, m.page, m.hasMore)
 		return m, nil
 
 	// Catch tab here for switching between input, checkbox and list
@@ -309,6 +327,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// for key matching, or use key.Matches
 	case tea.KeyMsg:
 		// log.Printf("state %s input.focus %v key '%s'", m.state, m.input.input.Focused(), msg.String())
+		if m.state == listState {
+			page := m.page
+			switch {
+			case key.Matches(msg, listKeys.PreviousSearchPage) && page > 0:
+				page--
+			case key.Matches(msg, listKeys.NextSearchPage) && m.hasMore && page < 999:
+				page++
+			default:
+				page = m.page
+			}
+			if page != m.page {
+				m.status = status(fmt.Sprintf("searching page %d...", page+1))
+				return m, findPerform(m.query, m.strict, m.postcode, page)
+			}
+		}
 		if key.Matches(msg, inputKeys.Tab) {
 			var s state
 			switch m.state {
@@ -317,6 +350,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case postcodeState:
 				s = checkboxState
 			case checkboxState:
+				s = sortState
+			case sortState:
 				if m.listLen > 0 {
 					s = listState
 				} else {
@@ -332,7 +367,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// defer to input or list models depending on state
 	switch m.state {
-	case inputState, postcodeState, checkboxState:
+	case inputState, postcodeState, checkboxState, sortState:
 		var t tea.Model
 		t, cmd = m.input.Update(msg)
 		m.input = t.(inModel)

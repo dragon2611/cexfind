@@ -51,6 +51,7 @@ type server struct {
 
 type Searcher interface {
 	Search(queries []string, strict bool, postcode string) ([]cexfind.Box, error)
+	SearchPage(queries []string, strict bool, postcode string, page int) ([]cexfind.Box, bool, error)
 	LocationDistancesOK() bool
 }
 
@@ -202,7 +203,11 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 	var postResults QueriesType
 	var decoder = schema.NewDecoder() // best as package decoder
 	err = decoder.Decode(&postResults, urlVals)
-	if err != nil || len(postResults.Query) == 0 {
+	if err != nil {
+		http.Error(w, "invalid search parameters", http.StatusBadRequest)
+		return
+	}
+	if len(postResults.Query) == 0 {
 		log.Printf("cex POST : %+v %v", postResults, err)
 		w.WriteHeader(http.StatusNoContent)
 		fmt.Fprint(w, "no query found")
@@ -217,6 +222,10 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "query error: %v", err)
 		return
 	}
+	if postResults.Page < 0 || postResults.Page > 999 {
+		http.Error(w, "page must be between 0 and 999", http.StatusBadRequest)
+		return
+	}
 
 	base := fmt.Sprintf("strict=%s", func() string {
 		if postResults.Strict {
@@ -227,6 +236,13 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 	if postResults.Postcode != "" {
 		base += fmt.Sprintf("&postcode=%s", url.PathEscape(postResults.Postcode))
 	}
+	postResults.Sort = validSort(postResults.Sort, postResults.Postcode, s.searcher.LocationDistancesOK())
+	if postResults.Sort != "model" {
+		base += fmt.Sprintf("&sort=%s", postResults.Sort)
+	}
+	if postResults.Page > 0 {
+		base += fmt.Sprintf("&page=%d", postResults.Page)
+	}
 	for _, q := range queries {
 		base += fmt.Sprintf("&query=%s", url.PathEscape(q))
 	}
@@ -235,11 +251,18 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 
 	// search; note that searcher is an indirect to search/cex.Search
 	type SearchResults struct {
-		Results []cexfind.Box
-		Err     error
+		Results      []cexfind.Box
+		Err          error
+		Sort         string
+		Page         int
+		PreviousPage int
+		NextPage     int
+		HasPrevious  bool
+		HasNext      bool
 	}
-	sr := SearchResults{}
-	sr.Results, sr.Err = s.searcher.Search(queries, postResults.Strict, postResults.Postcode)
+	sr := SearchResults{Sort: postResults.Sort, Page: postResults.Page + 1, PreviousPage: postResults.Page - 1, NextPage: postResults.Page + 1, HasPrevious: postResults.Page > 0}
+	sr.Results, sr.HasNext, sr.Err = s.searcher.SearchPage(queries, postResults.Strict, postResults.Postcode, postResults.Page)
+	cexfind.SortBoxes(sr.Results, sr.Sort)
 
 	t := template.Must(template.ParseFS(s.DirFS.TplFS, "partial-results.html"))
 	err = t.Execute(w, sr)
@@ -252,9 +275,24 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 type QueriesType struct {
 	Postcode string   `schema:"postcode"`
 	Strict   bool     `schema:"strict"`
+	Sort     string   `schema:"sort"`
+	Page     int      `schema:"page"`
 	Query    []string `schema:"query"`
 }
 
+func validSort(sort, postcode string, distancesOK bool) string {
+	switch sort {
+	case "price", "price-desc":
+		return sort
+	case "distance":
+		if postcode != "" && distancesOK {
+			return sort
+		}
+	}
+	return "model"
+}
+
+// nearestDistance returns the closest store with known coordinates.
 // String provides a string representation of QueriesType.Query,
 // suitable for use in a template
 func (q QueriesType) String() string {
@@ -279,6 +317,7 @@ func (s *server) Home(w http.ResponseWriter, r *http.Request) {
 	var search QueriesType
 	var decoder = schema.NewDecoder() // best as package decoder
 	err = decoder.Decode(&search, r.URL.Query())
+	search.Sort = validSort(search.Sort, search.Postcode, s.searcher.LocationDistancesOK())
 
 	if inDevelopment {
 		log.Printf("cex url GET : %+v %+v (%d items) err %v", r.URL.Query(), search, len(search.Query), err)

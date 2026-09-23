@@ -1,6 +1,7 @@
 package cexfind
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,55 @@ import (
 	"github.com/rorycl/cexfind/location"
 	"github.com/shopspring/decimal"
 )
+
+func TestSearchPageRequestsOneUpstreamPage(t *testing.T) {
+	oldURL := URL
+	defer func() { URL = oldURL }()
+
+	requests := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var body struct {
+			Requests []struct {
+				Params string `json:"params"`
+			} `json:"requests"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		if len(body.Requests) != 1 {
+			t.Errorf("got %d upstream requests, want 1", len(body.Requests))
+			return
+		}
+		params, err := url.ParseQuery(body.Requests[0].Params)
+		if err != nil {
+			t.Errorf("parse params: %v", err)
+			return
+		}
+		if got := params.Get("hitsPerPage"); got != "50" {
+			t.Errorf("hitsPerPage = %q, want 50", got)
+		}
+		if got := params.Get("page"); got != "1" {
+			t.Errorf("page = %q, want 1", got)
+		}
+		fmt.Fprint(w, `{"results":[{"hits":[{"boxName":"Test item","boxId":"item-2","sellPrice":10}],"nbPages":3}]}`)
+	}))
+	defer ts.Close()
+	URL = ts.URL
+
+	cex, err := NewCexFind()
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes, hasMore, err := cex.SearchPage([]string{"test item"}, false, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || len(boxes) != 1 || boxes[0].ID != "item-2" || !hasMore {
+		t.Errorf("requests=%d boxes=%v hasMore=%t", requests, boxes, hasMore)
+	}
+}
 
 // TestBoxInQuery tests strict query/Box.Name matches
 func TestBoxInQuery(t *testing.T) {

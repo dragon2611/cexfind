@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/rorycl/cexfind"
@@ -14,7 +15,7 @@ import (
 var usage = `
 a cli programme to search Cex/Webuy for second hand equipment
 
-eg <programme> [-strict] -query "query 1" [-query "query 2"...]
+eg <programme> [-strict] [-page 2] -query "query 1" [-query "query 2"...]
 
 `
 
@@ -43,10 +44,10 @@ func (q *queriesType) String() string {
 var Exit func(code int) = os.Exit
 
 // flagGetter indirects flagGet for testing
-var flagGetter func() (queriesType, bool, string, string, bool) = flagGet
+var flagGetter func() (queriesType, bool, string, string, bool, int, string) = flagGet
 
 // flagGet checks the flags
-func flagGet() (queriesType, bool, string, string, bool) {
+func flagGet() (queriesType, bool, string, string, bool, int, string) {
 
 	var (
 		strict   bool
@@ -54,6 +55,8 @@ func flagGet() (queriesType, bool, string, string, bool) {
 		postCode string
 		verbose  bool
 		proxy    string
+		page     int
+		sortBy   string
 	)
 
 	flag.BoolVar(&strict, "strict", false, "only return items that strictly match the search terms")
@@ -61,6 +64,8 @@ func flagGet() (queriesType, bool, string, string, bool) {
 	flag.BoolVar(&verbose, "verbose", false, "show verbose output, including cash/exchange prices and stores")
 	flag.StringVar(&postCode, "postcode", "", "specify postcode")
 	flag.StringVar(&proxy, "proxy", "", "proxy, eg: socks5://127.0.0.1:8080")
+	flag.IntVar(&page, "page", 1, "result page to fetch (1-1000; 50 hits per query per page)")
+	flag.StringVar(&sortBy, "sort", cexfind.SortModel, "sort by model, price, price-desc, or distance (requires postcode)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
@@ -73,13 +78,30 @@ func flagGet() (queriesType, bool, string, string, bool) {
 		flag.Usage()
 		Exit(1)
 	}
+	postCode = strings.TrimSpace(postCode)
+	switch sortBy {
+	case cexfind.SortModel, cexfind.SortPrice, cexfind.SortPriceDesc:
+	case cexfind.SortDistance:
+		if postCode == "" {
+			fmt.Fprintln(flag.CommandLine.Output(), "distance sorting requires -postcode")
+			Exit(1)
+		}
+	default:
+		fmt.Fprintf(flag.CommandLine.Output(), "invalid sort order %q\n", sortBy)
+		Exit(1)
+	}
 
-	return queries, strict, postCode, proxy, verbose
+	return queries, strict, postCode, proxy, verbose, page, sortBy
 }
 
 func main() {
 
-	queries, strict, postCode, proxy, verbose := flagGetter()
+	queries, strict, postCode, proxy, verbose, page, sortBy := flagGetter()
+	if page < 1 || page > 1000 {
+		fmt.Println("page must be between 1 and 1000")
+		Exit(1)
+		return
+	}
 
 	// clean queries
 	queries, err := cmd.QueryInputChecker(queries...)
@@ -89,18 +111,20 @@ func main() {
 	}
 
 	// do search
-	var cex *cexfind.CexFind
+	var options []cexfind.Option
 	if proxy != "" {
-		cex, err = cexfind.NewCexFind(cexfind.WithProxy(proxy))
-	} else {
-		cex, err = cexfind.NewCexFind()
+		options = append(options, cexfind.WithProxy(proxy))
 	}
+	if postCode != "" {
+		options = append(options, cexfind.WithStoreDistanceInitiliase())
+	}
+	cex, err := cexfind.NewCexFind(options...)
 	if err != nil {
 		fmt.Println(err)
 		Exit(1)
 	}
 
-	results, err := cex.Search(queries, strict, postCode)
+	results, _, err := cex.SearchPage(queries, strict, postCode, page-1)
 	switch {
 	case err != nil && len(results) > 0:
 		fmt.Println(err)
@@ -111,6 +135,7 @@ func main() {
 	default:
 		// show the list
 	}
+	cexfind.SortBoxes(results, sortBy)
 
 	if verbose || postCode != "" {
 		// print header
@@ -127,7 +152,7 @@ func main() {
 
 	k := ""
 	for _, box := range results {
-		if box.Model != k {
+		if sortBy != cexfind.SortModel || box.Model != k {
 			fmt.Printf("\n%s\n", box.Model)
 			k = box.Model
 		}

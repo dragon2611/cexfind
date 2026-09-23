@@ -14,6 +14,15 @@ that the app only works for queries emanating from the UK.
 SET the `PROXY` environmental variable to use, for example, a socks5
 proxy.
 
+Search results are fetched one upstream page at a time, with up to 50 hits
+per query. While the result list is focused, press `]` for the next search
+page or `[` for the previous one. The list's own scrolling stays separate.
+
+Press Tab to reach the sort field, then Space or `x` to cycle through
+model, price low to high, price high to low, and nearest store. Enter a
+postcode to make nearest store available. Press Enter to search.
+Sorting applies to the current search result page.
+
 ![](console.gif)
 
 This gif was made using Charm's

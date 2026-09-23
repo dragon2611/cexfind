@@ -25,7 +25,8 @@ import (
 var (
 	// URL is the Cex/Webuy search endpoint
 	URL = "https://search.webuy.io/1/indexes/*/queries"
-	// json body with placeholder MODEL; note that the availability online filter ensures only available kit is returned
+	// json body with placeholders MODEL and PAGE; the availability filter
+	// ensures only kit available online is returned.
 	jsonBody = strings.ReplaceAll(`{"requests": [
     {
       "indexName": "prod_cex_uk",
@@ -37,7 +38,7 @@ var (
 		&highlightPreTag=__ais-highlight__
 		&hitsPerPage=50
 		&maxValuesPerFacet=1000
-		&page=0
+		&page=PAGE
 		&query=MODEL
 		&tagFilters=
 		&userToken=71d182c769bd4dbc94081214a363c014"
@@ -63,16 +64,17 @@ type jsonResults struct {
 			PriceExchange decimal.Decimal `json:"exchangePriceCalculated"` // offer price for exchange
 			Stores        []string        `json:"stores"`
 		} `json:"hits"`
-		// NbHits      int `json:"nbHits",omitempty`
-		// HitsPerPage int `json:"hitsPerPage",omitempty`
+		NbPages int `json:"nbPages"`
 	} `json:"results"`
 }
 
 // boxResults encapsulates the responses from a search query
 type boxResults struct {
-	query string
-	box   Box
-	err   error
+	query        string
+	box          Box
+	err          error
+	hasMore      bool
+	metadataOnly bool
 }
 
 // validQuery checks that an incoming query fragment is ok to pass upstream.
@@ -88,7 +90,7 @@ func validQuery(query string) bool {
 
 // makeQueries makes queries concurrently; strict true requires that the
 // return results contain all terms in at least one query
-func makeQueries(ctx context.Context, client *http.Client, queries []string, strict bool) (<-chan boxResults, error) {
+func makeQueries(ctx context.Context, client *http.Client, queries []string, strict bool, page int) (<-chan boxResults, error) {
 
 	results := make(chan boxResults)
 
@@ -103,9 +105,20 @@ func makeQueries(ctx context.Context, client *http.Client, queries []string, str
 	for _, query := range queries {
 		wg.Go(func() {
 			br := boxResults{query: query}
-			queryBody := strings.ReplaceAll(jsonBody, "MODEL", url.QueryEscape(query))
+			queryBody := strings.ReplaceAll(jsonBody, "PAGE", fmt.Sprint(page))
+			queryBody = strings.ReplaceAll(queryBody, "MODEL", url.QueryEscape(query))
 			queryBytes := []byte(queryBody)
 			response, err := postQuery(client, queryBytes)
+			if len(response.Results) > 0 {
+				select {
+				case results <- boxResults{query: query, hasMore: page < 999 && page+1 < response.Results[0].NbPages, metadataOnly: true}:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if errors.Is(err, ErrNoResultsFound) {
+				return
+			}
 			if err != nil {
 				br.err = err
 				results <- br

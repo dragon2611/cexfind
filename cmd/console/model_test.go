@@ -5,7 +5,25 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/list"
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestSearchPageKeys(t *testing.T) {
+	m := model{state: listState, page: 1, hasMore: true, query: "test", strict: true, postcode: "SW1A 0AA"}
+	for _, tc := range []struct {
+		key      rune
+		wantPage int
+	}{{']', 2}, {'[', 0}} {
+		_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tc.key}})
+		if cmd == nil {
+			t.Fatalf("key %q did not fetch a page", tc.key)
+		}
+		msg, ok := cmd().(findPerformMsg)
+		if !ok || msg.page != tc.wantPage || msg.query != m.query || !msg.strict || msg.postcode != m.postcode {
+			t.Errorf("key %q produced %#v", tc.key, msg)
+		}
+	}
+}
 
 func TestMain(t *testing.T) {
 

@@ -26,7 +26,7 @@ func getKeyMap(k keyState) help.KeyMap {
 type inputKeyMap struct {
 	Search   key.Binding // enter, do the search
 	Tab      key.Binding // switch focus
-	Selector key.Binding // select or deselect strict
+	Selector key.Binding // change the focused checkbox or sort option
 	Exit     key.Binding // exit the app
 }
 
@@ -53,7 +53,7 @@ var inputKeys = inputKeyMap{
 	),
 	Selector: key.NewBinding(
 		key.WithKeys(" ", "x"),
-		key.WithHelp("<space>,x", "de/select strict"),
+		key.WithHelp("<space>,x", "change option"),
 	),
 	Exit: key.NewBinding(
 		key.WithKeys("ctrl+c"),
@@ -69,8 +69,10 @@ type KeyMap struct {
 	Tab   key.Binding // switch focus
 	Exit  key.Binding // exit the app
 	// Keybindings used when browsing the list.
-	CursorUp   key.Binding
-	CursorDown key.Binding
+	CursorUp           key.Binding
+	CursorDown         key.Binding
+	PreviousSearchPage key.Binding
+	NextSearchPage     key.Binding
 	// keybindings such as NexTpage and PrevPage continue to be caught
 	// by the default list keymap
 	/*
@@ -81,7 +83,7 @@ type KeyMap struct {
 
 // ShortHelp
 func (k KeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Enter, k.Tab, k.Exit, k.CursorUp, k.CursorDown}
+	return []key.Binding{k.Enter, k.Tab, k.Exit, k.CursorUp, k.CursorDown, k.PreviousSearchPage, k.NextSearchPage}
 }
 
 // FullHelp disabled
@@ -106,5 +108,13 @@ var listKeys = KeyMap{
 	CursorDown: key.NewBinding(
 		key.WithKeys("down", "j"),
 		key.WithHelp("↓/j", "down"),
+	),
+	PreviousSearchPage: key.NewBinding(
+		key.WithKeys("["),
+		key.WithHelp("[", "previous search page"),
+	),
+	NextSearchPage: key.NewBinding(
+		key.WithKeys("]"),
+		key.WithHelp("]", "next search page"),
 	),
 }
