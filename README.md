@@ -134,7 +134,7 @@ The sort constants are `SortModel`, `SortPrice`, `SortPriceDesc`, and
 
 ## AI assistance
 
-AI tools were used to add features to this project.
+AI tools were used to add features to this project, such as pagination and sorting.
 
 ## Licence
 
