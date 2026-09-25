@@ -25,23 +25,17 @@ import (
 var (
 	// URL is the Cex/Webuy search endpoint
 	URL = "https://search.webuy.io/1/indexes/*/queries"
-	// json body with placeholders MODEL and PAGE; the availability filter
+	// json body with placeholders INDEX, MODEL, PAGE and HITS_PER_PAGE; the availability filter
 	// ensures only kit available online is returned.
 	jsonBody = strings.ReplaceAll(`{"requests": [
     {
-      "indexName": "prod_cex_uk",
-      "params": "clickAnalytics=true
+      "indexName": "INDEX",
+      "params": "attributesToRetrieve=%5B%22boxName%22%2C%22boxId%22%2C%22categoryFriendlyName%22%2C%22sellPrice%22%2C%22cashPriceCalculated%22%2C%22exchangePriceCalculated%22%2C%22stores%22%5D
 		&facetFilters=%5B%5B%22availability%3AIn%20Stock%20Online%22%5D%5D
-		&facets=%5B%22*%22%5D
 		&filters=boxVisibilityOnWeb%3D1%20
-		&highlightPostTag=__%2Fais-highlight__
-		&highlightPreTag=__ais-highlight__
-		&hitsPerPage=50
-		&maxValuesPerFacet=1000
+		&hitsPerPage=HITS_PER_PAGE
 		&page=PAGE
-		&query=MODEL
-		&tagFilters=
-		&userToken=71d182c769bd4dbc94081214a363c014"
+		&query=MODEL"
     }]}`, "\n		", "")
 
 	// urlDetail is the Cex/Webuy base url for individual items
@@ -90,7 +84,7 @@ func validQuery(query string) bool {
 
 // makeQueries makes queries concurrently; strict true requires that the
 // return results contain all terms in at least one query
-func makeQueries(ctx context.Context, client *http.Client, queries []string, strict bool, page int, price PriceRange) (<-chan boxResults, error) {
+func makeQueries(ctx context.Context, client *http.Client, queries []string, strict bool, page, hitsPerPage int, price PriceRange, order string) (<-chan boxResults, error) {
 
 	results := make(chan boxResults)
 
@@ -105,7 +99,9 @@ func makeQueries(ctx context.Context, client *http.Client, queries []string, str
 	for _, query := range queries {
 		wg.Go(func() {
 			br := boxResults{query: query}
-			queryBody := strings.ReplaceAll(jsonBody, "PAGE", fmt.Sprint(page))
+			queryBody := strings.ReplaceAll(jsonBody, "INDEX", searchIndex(order))
+			queryBody = strings.ReplaceAll(queryBody, "HITS_PER_PAGE", fmt.Sprint(hitsPerPage))
+			queryBody = strings.ReplaceAll(queryBody, "PAGE", fmt.Sprint(page))
 			queryBody = strings.ReplaceAll(queryBody, "MODEL", url.QueryEscape(query))
 			var numericFilters []string
 			if price.Min != nil {

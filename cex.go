@@ -318,11 +318,27 @@ func (cex *CexFind) Search(queries []string, strict bool, postcode string) ([]Bo
 	return results, err
 }
 
+const (
+	pageSize          = 50
+	upstreamPageLimit = 1000
+)
+
 // SearchPage returns one zero-based page of results and whether a later page
 // is available from any of the upstream queries. Each query supplies at most
 // 50 hits on a page; strict filtering and duplicate removal may reduce that.
 // An optional PriceRange filters selling prices before upstream pagination.
 func (cex *CexFind) SearchPage(queries []string, strict bool, postcode string, page int, prices ...PriceRange) ([]Box, bool, error) {
+	return cex.searchPage(queries, strict, postcode, page, SortModel, prices...)
+}
+
+// SearchPageSorted returns a page ordered by order. Price ordering uses Cex's
+// corresponding upstream replica index, so ordering is applied before
+// pagination rather than independently within each page.
+func (cex *CexFind) SearchPageSorted(queries []string, strict bool, postcode string, page int, order string, prices ...PriceRange) ([]Box, bool, error) {
+	return cex.searchPage(queries, strict, postcode, page, order, prices...)
+}
+
+func (cex *CexFind) searchPage(queries []string, strict bool, postcode string, page int, order string, prices ...PriceRange) ([]Box, bool, error) {
 	if page < 0 || page > 999 {
 		return nil, false, fmt.Errorf("page must be between 0 and 999")
 	}
@@ -345,7 +361,15 @@ func (cex *CexFind) SearchPage(queries []string, strict bool, postcode string, p
 
 	var err error
 
-	results, err := makeQueries(ctx, cex.client, queries, strict, page, price)
+	upstreamPage, hitsPerPage := page, pageSize
+	mergePricePages := len(queries) > 1 && (order == SortPrice || order == SortPriceDesc)
+	if mergePricePages {
+		// A globally sorted union needs enough leading results from every
+		// independently sorted query to fill all pages through the requested one.
+		upstreamPage = 0
+		hitsPerPage = min((page+1)*pageSize, upstreamPageLimit)
+	}
+	results, err := makeQueries(ctx, cex.client, queries, strict, upstreamPage, hitsPerPage, price, order)
 	if err != nil {
 		return nil, false, err
 	}
@@ -367,20 +391,30 @@ func (cex *CexFind) SearchPage(queries []string, strict bool, postcode string, p
 			continue
 		}
 
-		// Store information is cached, as is any postcode with its
-		// location data. cached data only requires distances to be
-		// calculated. If stores are offline distance calcs are skipped,
-		// but stores "with distances" are still returned.
-		br.box.Stores, err = cex.storeDistances.Distances(postcode, br.box.storeNames)
-		if err != nil {
-			err = fmt.Errorf("postcode error: %w", err)
-			return nil, false, err
-		}
-
 		allBoxes = append(allBoxes, br.box)
 		idMap[br.box.ID] = struct{}{}
 	}
-	allBoxes.sort()
+	SortBoxes(allBoxes, order)
+	if mergePricePages {
+		start := page * pageSize
+		if start >= len(allBoxes) {
+			allBoxes = allBoxes[:0]
+		} else {
+			end := min(start+pageSize, len(allBoxes))
+			hasMore = hasMore || end < len(allBoxes)
+			allBoxes = allBoxes[start:end]
+		}
+	}
+
+	for i := range allBoxes {
+		// Store information is cached, as is any postcode with its location
+		// data. Calculate distances only for the page that will be returned.
+		stores, distanceErr := cex.storeDistances.Distances(postcode, allBoxes[i].storeNames)
+		if distanceErr != nil {
+			return nil, false, fmt.Errorf("postcode error: %w", distanceErr)
+		}
+		allBoxes[i].Stores = stores
+	}
 	if len(allBoxes) == 0 && page == 0 {
 		if err != nil {
 			err = fmt.Errorf("%w", err)

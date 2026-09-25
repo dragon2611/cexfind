@@ -52,6 +52,7 @@ type server struct {
 type Searcher interface {
 	Search(queries []string, strict bool, postcode string) ([]cexfind.Box, error)
 	SearchPage(queries []string, strict bool, postcode string, page int, prices ...cexfind.PriceRange) ([]cexfind.Box, bool, error)
+	SearchPageSorted(queries []string, strict bool, postcode string, page int, order string, prices ...cexfind.PriceRange) ([]cexfind.Box, bool, error)
 	LocationDistancesOK() bool
 }
 
@@ -272,7 +273,7 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 		HasNext      bool
 	}
 	sr := SearchResults{Sort: postResults.Sort, Page: postResults.Page + 1, PreviousPage: postResults.Page - 1, NextPage: postResults.Page + 1, HasPrevious: postResults.Page > 0}
-	sr.Results, sr.HasNext, sr.Err = s.searcher.SearchPage(queries, postResults.Strict, postResults.Postcode, postResults.Page, price)
+	sr.Results, sr.HasNext, sr.Err = s.searcher.SearchPageSorted(queries, postResults.Strict, postResults.Postcode, postResults.Page, sr.Sort, price)
 	cexfind.SortBoxes(sr.Results, sr.Sort)
 
 	t := template.Must(template.ParseFS(s.DirFS.TplFS, "partial-results.html"))

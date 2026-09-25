@@ -41,6 +41,11 @@ func (s *srch) SearchPage(queries []string, strict bool, postcode string, page i
 	results, err := s.Search(queries, strict, postcode)
 	return results, false, err
 }
+func (s *srch) SearchPageSorted(queries []string, strict bool, postcode string, page int, order string, prices ...cexfind.PriceRange) ([]cexfind.Box, bool, error) {
+	results, hasMore, err := s.SearchPage(queries, strict, postcode, page, prices...)
+	cexfind.SortBoxes(results, order)
+	return results, hasMore, err
+}
 
 func TestResultsPriceRange(t *testing.T) {
 	var got cexfind.PriceRange

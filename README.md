@@ -103,7 +103,8 @@ alternative for all switches, or see the [CLI README](cmd/cli/README.md).
 `Search` continues to return the first page. Use `SearchPage` to request a
 specific page and find out whether another page is available. Its page
 argument is zero-based (`0` is the first page; valid values are `0` to
-`999`). `SortBoxes` sorts the returned slice in place:
+`999`). Use `SearchPageSorted` when pagination and sorting must be combined;
+price ordering is applied upstream before selecting the requested page:
 
 ```go
 package main
@@ -120,11 +121,12 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    boxes, hasMore, err := finder.SearchPage([]string{"camera"}, false, "", 1)
+    boxes, hasMore, err := finder.SearchPageSorted(
+        []string{"camera"}, false, "", 1, cexfind.SortPrice,
+    )
     if err != nil {
         log.Fatal(err)
     }
-    cexfind.SortBoxes(boxes, cexfind.SortPrice)
     fmt.Printf("%d results; more pages: %t\n", len(boxes), hasMore)
 }
 ```

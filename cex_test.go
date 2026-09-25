@@ -45,6 +45,19 @@ func TestSearchPageRequestsOneUpstreamPage(t *testing.T) {
 		if got := params.Get("hitsPerPage"); got != "50" {
 			t.Errorf("hitsPerPage = %q, want 50", got)
 		}
+		var attributes []string
+		if err := json.Unmarshal([]byte(params.Get("attributesToRetrieve")), &attributes); err != nil {
+			t.Errorf("parse attributesToRetrieve: %v", err)
+		}
+		wantAttributes := []string{"boxName", "boxId", "categoryFriendlyName", "sellPrice", "cashPriceCalculated", "exchangePriceCalculated", "stores"}
+		if !slices.Equal(attributes, wantAttributes) {
+			t.Errorf("attributesToRetrieve = %v, want %v", attributes, wantAttributes)
+		}
+		for _, unused := range []string{"clickAnalytics", "facets", "maxValuesPerFacet", "userToken"} {
+			if params.Has(unused) {
+				t.Errorf("unused parameter %q was requested", unused)
+			}
+		}
 		if got := params.Get("page"); got != "1" {
 			t.Errorf("page = %q, want 1", got)
 		}
@@ -115,6 +128,141 @@ func TestSearchPagePriceRangeIsSentUpstream(t *testing.T) {
 	boxes, hasMore, err := cex.SearchPage([]string{"test item"}, false, "", 1, price)
 	if err != nil || len(boxes) != 1 || !hasMore {
 		t.Errorf("boxes=%v hasMore=%t err=%v", boxes, hasMore, err)
+	}
+}
+
+func TestSearchPageSortedUsesPriceReplicaBeforePagination(t *testing.T) {
+	oldURL := URL
+	defer func() { URL = oldURL }()
+
+	var requestedIndex string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Requests []struct {
+				Index  string `json:"indexName"`
+				Params string `json:"params"`
+			} `json:"requests"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		params, err := url.ParseQuery(body.Requests[0].Params)
+		if err != nil {
+			t.Errorf("parse params: %v", err)
+			return
+		}
+		requestedIndex = body.Requests[0].Index
+		if got := params.Get("hitsPerPage"); got != "50" {
+			t.Errorf("hitsPerPage = %q, want 50", got)
+		}
+		if got := params.Get("page"); got != "1" {
+			t.Errorf("page = %q, want 1", got)
+		}
+
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"results": []any{map[string]any{
+				"hits":    []any{map[string]any{"boxName": "Test item", "boxId": "item", "sellPrice": 10}},
+				"nbPages": 3,
+			}},
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	URL = ts.URL
+
+	cex, err := NewCexFind()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		order     string
+		wantIndex string
+	}{
+		{SortPrice, searchIndexPrice},
+		{SortPriceDesc, searchIndexPriceDesc},
+	} {
+		t.Run(tc.order, func(t *testing.T) {
+			boxes, hasMore, err := cex.SearchPageSorted([]string{"test item"}, false, "", 1, tc.order)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(boxes) != 1 {
+				t.Fatalf("got %d boxes, want 1", len(boxes))
+			}
+			if requestedIndex != tc.wantIndex {
+				t.Errorf("index = %q, want %q", requestedIndex, tc.wantIndex)
+			}
+			if !hasMore {
+				t.Error("hasMore = false, want true")
+			}
+		})
+	}
+}
+
+func TestSearchPageSortedMergesQueriesBeforePagination(t *testing.T) {
+	oldURL := URL
+	defer func() { URL = oldURL }()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Requests []struct {
+				Index  string `json:"indexName"`
+				Params string `json:"params"`
+			} `json:"requests"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		params, err := url.ParseQuery(body.Requests[0].Params)
+		if err != nil {
+			t.Errorf("parse params: %v", err)
+			return
+		}
+		if body.Requests[0].Index != searchIndexPrice || params.Get("page") != "0" || params.Get("hitsPerPage") != "100" {
+			t.Errorf("index=%q page=%q hits=%q", body.Requests[0].Index, params.Get("page"), params.Get("hitsPerPage"))
+		}
+
+		first := 1
+		if params.Get("query") == "even" {
+			first = 2
+		}
+		hits := make([]map[string]any, 100)
+		for i := range hits {
+			price := first + i*2
+			hits[i] = map[string]any{
+				"boxName":   fmt.Sprintf("Item %03d", price),
+				"boxId":     fmt.Sprintf("%s-%03d", params.Get("query"), price),
+				"sellPrice": price,
+			}
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"results": []any{map[string]any{"hits": hits, "nbPages": 1}},
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer ts.Close()
+	URL = ts.URL
+
+	cex, err := NewCexFind()
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes, hasMore, err := cex.SearchPageSorted([]string{"odd", "even"}, false, "", 1, SortPrice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(boxes) != pageSize {
+		t.Fatalf("got %d boxes, want %d", len(boxes), pageSize)
+	}
+	if first, last := boxes[0].Price.IntPart(), boxes[len(boxes)-1].Price.IntPart(); first != 51 || last != 100 {
+		t.Errorf("price range = %d..%d, want 51..100", first, last)
+	}
+	if !hasMore {
+		t.Error("hasMore = false, want true")
 	}
 }
 

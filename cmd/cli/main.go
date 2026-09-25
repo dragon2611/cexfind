@@ -134,7 +134,7 @@ func main() {
 		Exit(1)
 	}
 
-	results, _, err := cex.SearchPage(queries, strict, postCode, page-1, price)
+	results, _, err := cex.SearchPageSorted(queries, strict, postCode, page-1, sortBy, price)
 	switch {
 	case err != nil && len(results) > 0:
 		fmt.Println(err)

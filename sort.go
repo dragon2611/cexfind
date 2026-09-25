@@ -10,7 +10,22 @@ const (
 	SortPrice     = "price"
 	SortPriceDesc = "price-desc"
 	SortDistance  = "distance"
+
+	searchIndexDefault   = "prod_cex_uk"
+	searchIndexPrice     = "prod_cex_uk_price_asc"
+	searchIndexPriceDesc = "prod_cex_uk_price_desc"
 )
+
+func searchIndex(order string) string {
+	switch order {
+	case SortPrice:
+		return searchIndexPrice
+	case SortPriceDesc:
+		return searchIndexPriceDesc
+	default:
+		return searchIndexDefault
+	}
+}
 
 // SortBoxes orders search results in place. Distance uses the nearest store
 // with a known location and places items with no known distance last.
