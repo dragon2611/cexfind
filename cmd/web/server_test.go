@@ -4,6 +4,7 @@ package main
 // https://bignerdranch.com/blog/using-the-httptest-package-in-golang/
 
 import (
+	"context"
 	"io"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rorycl/cexfind"
 	"github.com/rorycl/cexfind/location"
@@ -478,5 +480,37 @@ func TestResultsSortSelection(t *testing.T) {
 				t.Errorf("wrong result order: %s", content)
 			}
 		})
+	}
+}
+
+// The production finder supports cancellation; older Searcher implementations
+// keep working through the compatibility path.
+type contextSearch struct {
+	*srch
+	received context.Context
+}
+
+func (s *contextSearch) SearchPageSortedContext(ctx context.Context, queries []string, strict bool, postcode string, page int, order string, prices ...cexfind.PriceRange) ([]cexfind.Box, bool, error) {
+	s.received = ctx
+	return nil, false, ctx.Err()
+}
+
+func TestResultsPassesRequestContext(t *testing.T) {
+	searcher := &contextSearch{srch: &srch{}}
+	server, err := newServer("", "", "", searcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.DirFS = &fileSystem{TplFS: os.DirFS("templates")}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest(http.MethodPost, "/results", strings.NewReader("query=test")).WithContext(ctx)
+	server.Results(httptest.NewRecorder(), request)
+	if searcher.received == nil || searcher.received.Err() != context.Canceled {
+		t.Fatal("browser cancellation did not reach the finder")
+	}
+	deadline, ok := searcher.received.Deadline()
+	if !ok || time.Until(deadline) > 90*time.Second {
+		t.Fatal("search deadline missing")
 	}
 }

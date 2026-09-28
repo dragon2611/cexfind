@@ -76,7 +76,7 @@ func validQuery(query string) bool {
 	if len(query) > 50 {
 		return false
 	}
-	if u, _ := url.Parse(query); u.Scheme != "" {
+	if u, err := url.Parse(query); err != nil || u.Scheme != "" {
 		return false
 	}
 	return true
@@ -99,23 +99,7 @@ func makeQueries(ctx context.Context, client *http.Client, queries []string, str
 	for _, query := range queries {
 		wg.Go(func() {
 			br := boxResults{query: query}
-			queryBody := strings.ReplaceAll(jsonBody, "INDEX", searchIndex(order))
-			queryBody = strings.ReplaceAll(queryBody, "HITS_PER_PAGE", fmt.Sprint(hitsPerPage))
-			queryBody = strings.ReplaceAll(queryBody, "PAGE", fmt.Sprint(page))
-			queryBody = strings.ReplaceAll(queryBody, "MODEL", url.QueryEscape(query))
-			var numericFilters []string
-			if price.Min != nil {
-				numericFilters = append(numericFilters, "sellPrice>="+price.Min.String())
-			}
-			if price.Max != nil {
-				numericFilters = append(numericFilters, "sellPrice<="+price.Max.String())
-			}
-			if len(numericFilters) > 0 {
-				filters, _ := json.Marshal(numericFilters)
-				queryBody = strings.Replace(queryBody, "&page=", "&numericFilters="+url.QueryEscape(string(filters))+"&page=", 1)
-			}
-			queryBytes := []byte(queryBody)
-			response, err := postQuery(client, queryBytes)
+			response, err := fetchQuery(ctx, client, query, page, hitsPerPage, price, order)
 			if len(response.Results) > 0 {
 				select {
 				case results <- boxResults{query: query, hasMore: page < 999 && page+1 < response.Results[0].NbPages, metadataOnly: true}:
@@ -128,7 +112,10 @@ func makeQueries(ctx context.Context, client *http.Client, queries []string, str
 			}
 			if err != nil {
 				br.err = err
-				results <- br
+				select {
+				case results <- br:
+				case <-ctx.Done():
+				}
 				return
 			}
 
@@ -162,8 +149,32 @@ func makeQueries(ctx context.Context, client *http.Client, queries []string, str
 	return results, nil
 }
 
+// fetchQuery builds a single upstream search. Every caller uses the shared gate.
+func fetchQuery(ctx context.Context, client *http.Client, query string, page, hitsPerPage int, price PriceRange, order string) (jsonResults, error) {
+	queryBody := strings.ReplaceAll(jsonBody, "INDEX", searchIndex(order))
+	queryBody = strings.ReplaceAll(queryBody, "HITS_PER_PAGE", fmt.Sprint(hitsPerPage))
+	queryBody = strings.ReplaceAll(queryBody, "PAGE", fmt.Sprint(page))
+	queryBody = strings.ReplaceAll(queryBody, "MODEL", url.QueryEscape(query))
+	var numericFilters []string
+	if price.Min != nil {
+		numericFilters = append(numericFilters, "sellPrice>="+price.Min.String())
+	}
+	if price.Max != nil {
+		numericFilters = append(numericFilters, "sellPrice<="+price.Max.String())
+	}
+	if len(numericFilters) > 0 {
+		filters, _ := json.Marshal(numericFilters)
+		queryBody = strings.Replace(queryBody, "&page=", "&numericFilters="+url.QueryEscape(string(filters))+"&page=", 1)
+	}
+	return postQueryContext(ctx, client, []byte(queryBody))
+}
+
 // postQuery posts the web query
 func postQuery(client *http.Client, queryBytes []byte) (jsonResults, error) {
+	return postQueryContext(context.Background(), client, queryBytes)
+}
+
+func postQueryContext(ctx context.Context, client *http.Client, queryBytes []byte) (jsonResults, error) {
 	var r jsonResults
 
 	_, err := url.ParseRequestURI(URL)
@@ -171,7 +182,7 @@ func postQuery(client *http.Client, queryBytes []byte) (jsonResults, error) {
 		return r, fmt.Errorf("url parsing error: %w", err)
 	}
 
-	request, err := http.NewRequest("POST", URL, bytes.NewBuffer(queryBytes))
+	request, err := http.NewRequestWithContext(ctx, "POST", URL, bytes.NewBuffer(queryBytes))
 	if err != nil {
 		return r, err
 	}
@@ -180,11 +191,14 @@ func postQuery(client *http.Client, queryBytes []byte) (jsonResults, error) {
 	// The request here triggers a possible SSRF warning, however the base URL is
 	// provided as a static var and the query parameters are escaped before addition.
 	// nolint:gosec
-	response, err := client.Do(request)
+	response, err := sharedSearchGate.do(client, request)
 	if err != nil {
 		return r, fmt.Errorf("http call error: %w", err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return r, fmt.Errorf("search backend returned HTTP %d", response.StatusCode)
+	}
 
 	responseBytes, err := io.ReadAll(response.Body)
 	if err != nil {
@@ -204,7 +218,6 @@ func postQuery(client *http.Client, queryBytes []byte) (jsonResults, error) {
 		// html page might have been returned; try and extract heading
 		reason := errorExtract(responseBytes)
 		if reason != "" {
-			reason = "unknown API retrieval or unmarshalling error"
 			return r, errors.New(reason)
 		}
 		if _, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {

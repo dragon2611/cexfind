@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -162,7 +163,7 @@ func (s *server) serve() {
 		// timeouts and limits
 		MaxHeaderBytes:    s.WebMaxHeaderBytes,
 		ReadTimeout:       1 * time.Second,
-		WriteTimeout:      2 * time.Second,
+		WriteTimeout:      2 * time.Minute,
 		IdleTimeout:       30 * time.Second,
 		ReadHeaderTimeout: 2 * time.Second,
 	}
@@ -273,7 +274,17 @@ func (s *server) Results(w http.ResponseWriter, r *http.Request) {
 		HasNext      bool
 	}
 	sr := SearchResults{Sort: postResults.Sort, Page: postResults.Page + 1, PreviousPage: postResults.Page - 1, NextPage: postResults.Page + 1, HasPrevious: postResults.Page > 0}
-	sr.Results, sr.HasNext, sr.Err = s.searcher.SearchPageSorted(queries, postResults.Strict, postResults.Postcode, postResults.Page, sr.Sort, price)
+	// A disconnected browser must not keep fetching upstream pages. The longer
+	// write timeout allows paced searches, while this deadline bounds each search.
+	if searcher, ok := s.searcher.(interface {
+		SearchPageSortedContext(context.Context, []string, bool, string, int, string, ...cexfind.PriceRange) ([]cexfind.Box, bool, error)
+	}); ok {
+		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+		defer cancel()
+		sr.Results, sr.HasNext, sr.Err = searcher.SearchPageSortedContext(ctx, queries, postResults.Strict, postResults.Postcode, postResults.Page, sr.Sort, price)
+	} else {
+		sr.Results, sr.HasNext, sr.Err = s.searcher.SearchPageSorted(queries, postResults.Strict, postResults.Postcode, postResults.Page, sr.Sort, price)
+	}
 	cexfind.SortBoxes(sr.Results, sr.Sort)
 
 	t := template.Must(template.ParseFS(s.DirFS.TplFS, "partial-results.html"))

@@ -30,6 +30,30 @@ is not intended for commercial use.
   Distance sorting requires a postcode and available store location data.
 - Limit results to an inclusive minimum and/or maximum selling price in pounds.
 
+## Backend request limits
+
+Combined price searches fetch fixed 50-hit batches and merge them incrementally.
+Later pages reuse earlier batches instead of downloading growing prefixes of every
+query. Only queries whose unseen prices could affect the requested page are
+expanded. Equal-price results are resolved across batch boundaries before paging.
+
+A finder retains up to eight combined price searches for two minutes from the
+start of each search. Results may reflect that snapshot until it expires. Each
+search accepts up to eight distinct query terms; repeated identical terms are
+sent only once. Combined price searches examine at most 1,000 upstream hits per
+query, including hits discarded by strict matching. Refine the query or price
+range to search beyond that limit.
+
+Search requests across all finders in a process start at least 500 ms apart, with
+only one request waiting for response headers at a time. HTTP 429 responses stop
+queued searches and return a cooldown error, honoring `Retry-After` (seconds or an
+HTTP date), or using one minute if it is absent or invalid. There are no automatic
+retries. Separate CLI invocations have separate caches and limiters; use a
+long-running web or console client to reuse results between pages.
+
+The web client cancels work when the browser disconnects and limits a search to
+90 seconds. Library callers can use `SearchPageSortedContext` for cancellation.
+
 ## Usage
 
 Simply download the binaries for your machine's architecture from
