@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -128,6 +129,73 @@ func TestSearchPagePriceRangeIsSentUpstream(t *testing.T) {
 	boxes, hasMore, err := cex.SearchPage([]string{"test item"}, false, "", 1, price)
 	if err != nil || len(boxes) != 1 || !hasMore {
 		t.Errorf("boxes=%v hasMore=%t err=%v", boxes, hasMore, err)
+	}
+}
+
+func TestStrictDisablesUpstreamTypoTolerance(t *testing.T) {
+	oldURL := URL
+	defer func() { URL = oldURL }()
+
+	var mu sync.Mutex
+	var got []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Requests []struct {
+				Params string `json:"params"`
+			} `json:"requests"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Requests) != 1 {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		params, err := url.ParseQuery(body.Requests[0].Params)
+		if err != nil {
+			t.Errorf("parse params: %v", err)
+			return
+		}
+		mu.Lock()
+		got = append(got, params.Get("typoTolerance"))
+		mu.Unlock()
+		fmt.Fprintf(w, `{"results":[{"hits":[{"boxName":"Test item %s","boxId":"item-%s","sellPrice":10}],"nbPages":1}]}`, params.Get("query"), params.Get("query"))
+	}))
+	defer ts.Close()
+	URL = ts.URL
+
+	tests := []struct {
+		name    string
+		queries []string
+		order   string
+		strict  bool
+		want    string
+	}{
+		{"single query strict", []string{"a"}, SortModel, true, "false"},
+		{"single query loose", []string{"a"}, SortModel, false, ""},
+		{"merged price strict", []string{"a", "b"}, SortPrice, true, "false"},
+		{"merged price loose", []string{"a", "b"}, SortPrice, false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mu.Lock()
+			got = nil
+			mu.Unlock()
+			cex, err := NewCexFind()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := cex.SearchPageSorted(tt.queries, tt.strict, "", 0, tt.order); err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(got) != len(tt.queries) {
+				t.Fatalf("got %d upstream requests, want %d", len(got), len(tt.queries))
+			}
+			for _, v := range got {
+				if v != tt.want {
+					t.Errorf("typoTolerance = %q, want %q", v, tt.want)
+				}
+			}
+		})
 	}
 }
 
