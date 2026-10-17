@@ -147,7 +147,7 @@ func (cex *CexFind) mergedPricePage(ctx context.Context, queries []string, stric
 			return boxes[start:end], more, nil
 		}
 		stream := &search.streams[next]
-		response, err := fetchQuery(ctx, cex.client, stream.query, stream.page, pageSize, price, order)
+		response, err := fetchQuery(ctx, cex.client, stream.query, strict, stream.page, pageSize, price, order)
 		if err != nil && !errors.Is(err, ErrNoResultsFound) {
 			// Keep successful batches but never serve a potentially misordered page.
 			return nil, false, fmt.Errorf("%q: %w", stream.query, err)

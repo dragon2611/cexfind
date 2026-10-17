@@ -99,7 +99,7 @@ func makeQueries(ctx context.Context, client *http.Client, queries []string, str
 	for _, query := range queries {
 		wg.Go(func() {
 			br := boxResults{query: query}
-			response, err := fetchQuery(ctx, client, query, page, hitsPerPage, price, order)
+			response, err := fetchQuery(ctx, client, query, strict, page, hitsPerPage, price, order)
 			if len(response.Results) > 0 {
 				select {
 				case results <- boxResults{query: query, hasMore: page < 999 && page+1 < response.Results[0].NbPages, metadataOnly: true}:
@@ -150,7 +150,9 @@ func makeQueries(ctx context.Context, client *http.Client, queries []string, str
 }
 
 // fetchQuery builds a single upstream search. Every caller uses the shared gate.
-func fetchQuery(ctx context.Context, client *http.Client, query string, page, hitsPerPage int, price PriceRange, order string) (jsonResults, error) {
+// Strict searches disable upstream typo tolerance, otherwise near-miss matches
+// (eg "9000" for "9070") fill each page only to be discarded by inQuery.
+func fetchQuery(ctx context.Context, client *http.Client, query string, strict bool, page, hitsPerPage int, price PriceRange, order string) (jsonResults, error) {
 	queryBody := strings.ReplaceAll(jsonBody, "INDEX", searchIndex(order))
 	queryBody = strings.ReplaceAll(queryBody, "HITS_PER_PAGE", fmt.Sprint(hitsPerPage))
 	queryBody = strings.ReplaceAll(queryBody, "PAGE", fmt.Sprint(page))
@@ -165,6 +167,9 @@ func fetchQuery(ctx context.Context, client *http.Client, query string, page, hi
 	if len(numericFilters) > 0 {
 		filters, _ := json.Marshal(numericFilters)
 		queryBody = strings.Replace(queryBody, "&page=", "&numericFilters="+url.QueryEscape(string(filters))+"&page=", 1)
+	}
+	if strict {
+		queryBody = strings.Replace(queryBody, "&page=", "&typoTolerance=false&page=", 1)
 	}
 	return postQueryContext(ctx, client, []byte(queryBody))
 }
